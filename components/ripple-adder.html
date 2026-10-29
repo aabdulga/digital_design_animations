@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4-bit Ripple-Carry Adder</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#ripple-adder">← All components</a>
+    <p class="kicker">Combinational</p>
+    <h1>4-bit Ripple-Carry Adder</h1>
+    <p>Four full adders in a row add two 4-bit numbers, one column each, just like adding by hand. The carry out of each column is the carry in of the next one to its left. A column cannot finish until its carry has arrived, so the carry ripples from FA0 to FA3 and the sum is wrong for a moment. Change an input and watch it settle.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Block diagram</h2>
+      <svg id="sch" class="sch" viewBox="0 0 750 264" width="750" height="264" role="img"
+           aria-label="Four full-adder blocks FA3, FA2, FA1, FA0 from left to right. Each takes bits Ai and Bi from above and its carry-in from the block on its right, and gives sum Si below and its carry-out to the block on its left. C0 enters FA0 from the right; C4 leaves FA3 on the left."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>carry at 1</span>
+        <span>Shaded block: computing.</span><span>Click any input square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Inputs</h2>
+      <div class="row"><span class="lab">A</span>
+        <button class="bit" id="a3"><small>A3</small><span class="v">0</span></button>
+        <button class="bit" id="a2"><small>A2</small><span class="v">0</span></button>
+        <button class="bit" id="a1"><small>A1</small><span class="v">0</span></button>
+        <button class="bit" id="a0"><small>A0</small><span class="v">0</span></button>
+      </div>
+      <div class="row"><span class="lab">B</span>
+        <button class="bit" id="b3"><small>B3</small><span class="v">0</span></button>
+        <button class="bit" id="b2"><small>B2</small><span class="v">0</span></button>
+        <button class="bit" id="b1"><small>B1</small><span class="v">0</span></button>
+        <button class="bit" id="b0"><small>B0</small><span class="v">0</span></button>
+      </div>
+      <div class="row"><span class="lab">Carry</span>
+        <button class="bit ctrl" id="c0"><small>C0</small><span class="v">0</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <p class="note" id="status" style="margin:0" aria-live="polite"></p>
+      <div class="row">
+        <label for="delay">Stage delay</label>
+        <input type="range" id="delay" min="100" max="1200" step="50" value="600" style="flex:1">
+        <code id="delayv">600 ms</code>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="worst">Worst case ⏵</button>
+        <button class="btn" id="rand">Random inputs</button>
+      </div>
+      <p class="note" id="signed" style="margin:0"></p>
+    </section>
+  </div>
+
+  <section class="panel scroll">
+    <h2>Carry propagation after the last change</h2>
+    <svg id="tim" class="timing" role="img" aria-label="Timing strip: A, B and C0 change at time 0; C1 to C4 and the sum S settle one stage delay apart."></svg>
+    <p class="note">τ is one stage delay (the slider). Every stage reacts to its own A and B bits within the first τ, but each carry needs one more τ per stage, so S can show wrong values until the last carry has arrived.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>Delay grows with n</h3><p>In a full adder the carry passes through two gate levels (AND, then OR). In the worst case it must cross every stage, so an n-bit ripple adder needs about 2n gate delays. 64 bits means about 128 gate delays, far too slow for a fast CPU.</p></div>
+    <div><h3>Why carry-lookahead exists</h3><p>Each stage either generates a carry (<code>G = AB</code>) or propagates one (<code>P = A⊕B</code>). A lookahead unit computes <code>C2 = G1 + P1G0 + P1P0C0</code> and so on straight from G, P and C0 in two levels, so no carry has to wait for its neighbour.</p></div>
+    <div><h3>Signed overflow</h3><p>For two's-complement numbers, C4 is not an error flag. Overflow happens when the carry into the sign bit differs from the carry out of it: <code>V = C4 ⊕ C3</code>. Example: 0111 + 0001 = 1000, so 7 + 1 gives −8 and V = 1.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var A = 11, B = 6, C0 = 0;                        /* inputs */
+  var c = [0, 0, 0, 0, 0], s = [0, 0, 0, 0];        /* carries C0..C4 and sums as currently shown */
+  var seen = [null, null, null, null];              /* inputs each stage last computed from */
+  var hot = [0, 0, 0, 0], settling = false, ticks = 0;
+  var X = [590, 420, 250, 80];                      /* left edge of FA0..FA3: LSB on the right */
+  var BW = 104, BY = 110, BH = 84, CY = BY + BH / 2;
+  var W = {};                                       /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, ctrl) { return reg(name, DD.wire(svg, pts, ctrl ? 'ctrl' : '')); }
+  function bit(x, i) { return (x >> i) & 1; }
+
+  /* ---- four full-adder blocks with their wires ---- */
+  var blocks = [], pinA = [], pinB = [], leds = [], sT = [], cT = [];
+  for (var i = 0; i < 4; i++) (function (i) {
+    var x = X[i], ax = x + 30, bx = x + 74, sx = x + BW / 2;
+    wire('A' + i, [[ax, 60], [ax, BY]]);
+    wire('B' + i, [[bx, 60], [bx, BY]]);
+    wire('S' + i, [[sx, BY + BH], [sx, 229]]);
+    /* carry out of this stage runs left to the next block (or to the C4 lamp) */
+    var xl = i < 3 ? X[i + 1] + BW : 46;
+    wire('C' + (i + 1), [[x, CY], [xl, CY]], 1);
+    blocks[i] = DD.block(svg, x, BY, BW, BH, { title: 'FA' + i });
+    DD.text(svg, ax, BY + 16, 'A', 'lbl small');
+    DD.text(svg, bx, BY + 16, 'B', 'lbl small');
+    DD.text(svg, x + 6, CY + 4, 'Cout', 'lbl small', 'start');
+    DD.text(svg, x + BW - 6, CY + 4, 'Cin', 'lbl small', 'end');
+    DD.text(svg, sx, BY + BH - 8, 'S', 'lbl small');
+    pinA[i] = DD.pin(svg, ax + 12, 48, 'A' + i, { side: 'top', onToggle: function (v) { change(function () { A = A & ~(1 << i) | (v << i); }); } });
+    pinB[i] = DD.pin(svg, bx + 12, 48, 'B' + i, { side: 'top', onToggle: function (v) { change(function () { B = B & ~(1 << i) | (v << i); }); } });
+    leds[i] = DD.led(svg, sx, 241, 12, 'S' + i);
+    sT[i] = DD.text(svg, sx - 8, 220, '0', 'lbl val', 'end');
+    if (i < 3) cT[i + 1] = DD.text(svg, (x + xl) / 2, CY - 8, '', 'lbl val');
+  })(i);
+  /* carry in from the right, carry out to the lamp on the left */
+  wire('C0', [[712, CY], [X[0] + BW, CY]], 1);
+  var pinC = DD.pin(svg, 736, CY, 'C0', { ctrl: 1, side: 'top', onToggle: function (v) { change(function () { C0 = v; }); } });
+  var led4 = DD.led(svg, 34, CY, 12, null, { ctrl: 1 });
+  DD.text(svg, 34, CY + 30, 'C4', 'lbl');
+  cT[4] = DD.text(svg, 34, CY - 20, '', 'lbl val');
+
+  /* ---- the adder model: each stage recomputes one stage delay after its inputs change ---- */
+  function stageIn(i) { return [bit(A, i), bit(B, i), c[i]]; }
+  function dirty(i) { var x = stageIn(i), e = seen[i]; return !e || e[0] !== x[0] || e[1] !== x[1] || e[2] !== x[2]; }
+  function compute(i, inp) {
+    var a = inp[0], b = inp[1], ci = inp[2];
+    return { s: a ^ b ^ ci, co: (a & b) | (ci & (a ^ b)) };
+  }
+  function settleNow() {
+    c[0] = C0;
+    for (var i = 0; i < 4; i++) { var inp = stageIn(i), r = compute(i, inp); s[i] = r.s; c[i + 1] = r.co; seen[i] = inp; }
+    hot = [0, 0, 0, 0]; settling = false;
+  }
+  /* one stage delay passes: every stage whose inputs changed produces its new outputs, all at once */
+  function tick() {
+    var res = [];
+    for (var i = 0; i < 4; i++) if (hot[i]) res[i] = { inp: stageIn(i), r: compute(i, stageIn(i)) };
+    for (i = 0; i < 4; i++) if (res[i]) { s[i] = res[i].r.s; c[i + 1] = res[i].r.co; seen[i] = res[i].inp; }
+  }
+  function snap() { return { A: A, B: B, C0: C0, c: c.slice(), s: s.slice() }; }
+
+  var gen = 0, hist = [];                           /* hist[0]: before the change, hist[k+1]: after k stage delays */
+  async function change(fn) {
+    var before = snap();
+    fn(); c[0] = C0;
+    var my = ++gen;
+    hist = [before, snap()]; ticks = 0;
+    for (;;) {
+      for (var i = 0; i < 4; i++) hot[i] = dirty(i) ? 1 : 0;
+      settling = hot.some(Boolean);
+      render();
+      if (!settling) return;
+      await DD.sleep(delay());
+      if (my !== gen) return;                       /* a newer change took over */
+      tick(); ticks++; hist.push(snap());
+    }
+  }
+
+  /* ---- HTML controls ---- */
+  var setA = [], setB = [];
+  for (i = 0; i < 4; i++) (function (i) {
+    setA[i] = DD.bitButton(document.getElementById('a' + i), function () { return bit(A, i); }, function (v) { change(function () { A = A & ~(1 << i) | (v << i); }); });
+    setB[i] = DD.bitButton(document.getElementById('b' + i), function () { return bit(B, i); }, function (v) { change(function () { B = B & ~(1 << i) | (v << i); }); });
+  })(i);
+  var setC = DD.bitButton(document.getElementById('c0'), function () { return C0; }, function (v) { change(function () { C0 = v; }); });
+  var slider = document.getElementById('delay');
+  function delay() { return +slider.value; }
+  slider.addEventListener('input', function () { document.getElementById('delayv').textContent = slider.value + ' ms'; });
+  document.getElementById('worst').addEventListener('click', async function () {
+    /* A = 1111, B = 0000, C0 = 0 settled; then C0 goes to 1 and the carry crosses all four stages */
+    var my = ++gen;
+    A = 15; B = 0; C0 = 0; settleNow(); hist = [snap(), snap()]; ticks = 0; render();
+    await DD.sleep(Math.max(500, delay()));
+    if (my !== gen) return;
+    change(function () { C0 = 1; });
+  });
+  document.getElementById('rand').addEventListener('click', function () {
+    change(function () { A = Math.floor(Math.random() * 16); B = Math.floor(Math.random() * 16); C0 = Math.random() < .5 ? 1 : 0; });
+  });
+
+  /* ---- timing strip: one column per stage delay ---- */
+  var tim = document.getElementById('tim');
+  var TX0 = 56, CW = 100, SLOTS = 6, RH = 30, TOP = 14;
+  function drawTiming() {
+    var el = DD.el, tx = DD.text;
+    while (tim.firstChild) tim.removeChild(tim.firstChild);
+    var rows = [
+      { label: 'A', bus: function (h) { return DD.bin(h.A, 4); } },
+      { label: 'B', bus: function (h) { return DD.bin(h.B, 4); } },
+      { label: 'C0', bit: function (h) { return h.C0; } },
+      { label: 'C1', bit: function (h) { return h.c[1]; } },
+      { label: 'C2', bit: function (h) { return h.c[2]; } },
+      { label: 'C3', bit: function (h) { return h.c[3]; } },
+      { label: 'C4', bit: function (h) { return h.c[4]; } },
+      { label: 'S', bus: function (h) { return h.s.slice().reverse().join(''); } }
+    ];
+    var Wd = TX0 + SLOTS * CW + 16, H = TOP + rows.length * RH + 22;
+    tim.setAttribute('viewBox', '0 0 ' + Wd + ' ' + H); tim.setAttribute('width', Wd); tim.setAttribute('height', H);
+    /* slot j shows hist[j]; once settled the last value holds to the end of the strip */
+    var n = hist.length, slots = [];
+    for (var j = 0; j < SLOTS; j++) slots.push(j < n ? hist[j] : (settling ? null : hist[n - 1]));
+    if (settling) el('rect', { x: TX0 + (n - 1) * CW, y: 4, width: CW, height: H - 22, 'class': 't-now' }, tim);
+    for (j = 0; j <= SLOTS; j++) el('line', { x1: TX0 + j * CW, y1: 6, x2: TX0 + j * CW, y2: H - 18, 'class': 't-grid' }, tim);
+    tx(tim, TX0 + CW / 2, H - 5, 'before', 't-small');
+    for (j = 1; j < SLOTS; j++) tx(tim, TX0 + j * CW, H - 5, j === 1 ? '0' : (j - 1) + 'τ', 't-small');
+    if (!settling && n > 1) tx(tim, TX0 + n * CW - CW / 2, H - 5, ticks ? 'settled' : '', 't-small');
+    rows.forEach(function (row, ri) {
+      var yc = TOP + ri * RH + RH / 2, hi = yc - 7, lo = yc + 7, prev = null, s;
+      tx(tim, TX0 - 8, yc + 4, row.label, 't-lab', 'end');
+      if (row.bus) {
+        s = 0;
+        while (s < SLOTS) {
+          if (!slots[s]) { s++; continue; }
+          var v = row.bus(slots[s]), e = s;
+          while (e + 1 < SLOTS && slots[e + 1] && row.bus(slots[e + 1]) === v) e++;
+          var xa = TX0 + s * CW, xb = TX0 + (e + 1) * CW;
+          el('polygon', { points: [[xa + 4, hi], [xb - 4, hi], [xb, yc], [xb - 4, lo], [xa + 4, lo], [xa, yc]].map(function (p) { return p.join(','); }).join(' '), 'class': 't-bus' }, tim);
+          tx(tim, (xa + xb) / 2, yc + 4, v, 't-lab');
+          s = e + 1;
+        }
+        return;
+      }
+      for (s = 0; s < SLOTS; s++) {
+        if (!slots[s]) { prev = null; continue; }
+        var b = row.bit(slots[s]), xs = TX0 + s * CW, y = b ? hi : lo;
+        if (prev !== null && prev !== b) el('line', { x1: xs, y1: prev ? hi : lo, x2: xs, y2: y, 'class': 't-sig' }, tim);
+        el('line', { x1: xs, y1: y, x2: xs + CW, y2: y, 'class': 't-sig' + (b ? ' hi' : '') }, tim);
+        prev = b;
+      }
+    });
+  }
+
+  function signed4(x) { return x & 8 ? x - 16 : x; }
+  function render() {
+    var v = {};
+    for (var i = 0; i < 4; i++) {
+      v['A' + i] = bit(A, i); v['B' + i] = bit(B, i); v['S' + i] = s[i];
+      pinA[i].set(v['A' + i]); pinB[i].set(v['B' + i]); setA[i](v['A' + i]); setB[i](v['B' + i]);
+      leds[i].set(s[i]); DD.setVal(sT[i], s[i]);
+      blocks[i].hot(hot[i]);
+    }
+    for (i = 0; i <= 4; i++) { v['C' + i] = c[i]; if (cT[i]) DD.setVal(cT[i], c[i], i === 4 ? '' : 'C' + i + '='); }
+    for (var n in W) DD.setHi(W[n], v[n]);
+    led4.set(c[4]); pinC.set(C0); setC(C0);
+
+    var S = s[3] * 8 + s[2] * 4 + s[1] * 2 + s[0];
+    var fn = document.getElementById('fn');
+    fn.textContent = 'A = ' + A + ', B = ' + B + ', C0 = ' + C0 + ' → S = ' + DD.bin(S, 4) + ', C4 = ' + c[4] + ' → ' + (c[4] * 16 + S);
+    fn.classList.toggle('warn', settling);
+    var st = document.getElementById('status');
+    if (settling) {
+      var busy = [];
+      for (i = 0; i < 4; i++) if (hot[i]) busy.push('FA' + i);
+      st.textContent = 'Settling… t = ' + ticks + 'τ, computing: ' + busy.join(', ') + '. The sum shown may still be wrong (correct: ' + (A + B + C0) + ').';
+    } else {
+      st.textContent = 'Stable' + (ticks ? ', settled after ' + ticks + ' stage delay' + (ticks > 1 ? 's' : '') : '') + '. A + B + C0 = ' + (A + B + C0) + '.';
+    }
+    var V = c[4] ^ c[3];
+    document.getElementById('signed').textContent =
+      'As signed numbers: ' + signed4(A) + ' + ' + signed4(B) + ' + ' + C0 + ' → S = ' + signed4(S) + ', V = C4 ⊕ C3 = ' + V + (V ? ' (overflow)' : '');
+    drawTiming();
+  }
+
+  settleNow(); hist = [snap(), snap()];
+  render();
+})();
+</script>
+</body>
+</html>

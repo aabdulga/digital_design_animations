@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4-to-1 Multiplexer</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#mux">← All components</a>
+    <p class="kicker">Combinational</p>
+    <h1>4-to-1 Multiplexer</h1>
+    <p>A multiplexer is a data selector. The two select lines S1 S0 form a binary number that picks one of the four data inputs and passes it to the output Y. Inside, each AND gate is enabled by exactly one select combination, and an OR gate collects the result.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Gate-level circuit</h2>
+      <svg id="sch" class="sch" viewBox="0 0 680 450" width="680" height="450" role="img"
+           aria-label="Four 3-input AND gates, each taking one data input and two select terms, feeding a 4-input OR gate. Two NOT gates make the complemented select lines."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>select line at 1</span>
+        <span>Click any input square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Inputs</h2>
+      <div class="row"><span class="lab">Data</span>
+        <button class="bit" id="b3"><small>I3</small><span class="v">0</span></button>
+        <button class="bit" id="b2"><small>I2</small><span class="v">0</span></button>
+        <button class="bit" id="b1"><small>I1</small><span class="v">0</span></button>
+        <button class="bit" id="b0"><small>I0</small><span class="v">0</span></button>
+      </div>
+      <div class="row"><span class="lab">Select</span>
+        <button class="bit ctrl" id="bs1"><small>S1</small><span class="v">0</span></button>
+        <button class="bit ctrl" id="bs0"><small>S0</small><span class="v">0</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="step">Next select ⏵</button>
+        <button class="btn" id="sweep">Sweep all four</button>
+      </div>
+      <h2 style="margin-top:6px">Function table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>S1</th><th>S0</th><th class="sep">Y</th><th>enabled gate</th></tr></thead>
+        <tbody>
+          <tr class="pick" data-k="0"><td>0</td><td>0</td><td class="sep">I0</td><td>AND 0</td></tr>
+          <tr class="pick" data-k="1"><td>0</td><td>1</td><td class="sep">I1</td><td>AND 1</td></tr>
+          <tr class="pick" data-k="2"><td>1</td><td>0</td><td class="sep">I2</td><td>AND 2</td></tr>
+          <tr class="pick" data-k="3"><td>1</td><td>1</td><td class="sep">I3</td><td>AND 3</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:0">Click a row to set the select lines.</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>The equation</h3><p><code>Y = S1'S0'·I0 + S1'S0·I1 + S1S0'·I2 + S1S0·I3</code>. Each product term is one AND gate; the sum is the OR gate.</p></div>
+    <div><h3>Only one gate is enabled</h3><p>For any select value, exactly one AND gate sees two 1s on its select inputs (outlined in teal). The other three output 0 no matter what their data input is.</p></div>
+    <div><h3>Scaling up</h3><p>A 2<sup>n</sup>-to-1 mux needs n select lines. An 8-to-1 mux has 8 four-input AND gates and an 8-input OR gate, or can be built from smaller muxes in a tree.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var I = [0, 1, 0, 1], S1 = 0, S0 = 0;           /* I[k] is data input k */
+  var cy = [60, 140, 220, 300];                   /* centre line of AND gate k */
+  var BX = { S1: 170, nS1: 195, S0: 230, nS0: 255 };
+  var W = {};                                     /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, ctrl) { return reg(name, DD.wire(svg, pts, ctrl ? 'ctrl' : '')); }
+  function dot(name, x, y, ctrl) { return reg(name, DD.dot(svg, x, y, ctrl ? 'ctrl' : '')); }
+
+  /* ---- select lines and their inverters (bottom left) ---- */
+  wire('S1', [[70, 360], [BX.S1, 360], [BX.S1, 34]], 1);
+  wire('S1', [[110, 360], [110, 382], [125, 382]], 1); dot('S1', 110, 360, 1);
+  var n1 = DD.gate(svg, 'not', 125, 368, { cls: 'ctrl' });
+  wire('nS1', [n1.out, [BX.nS1, 382], [BX.nS1, 34]], 1);
+  wire('S0', [[70, 408], [BX.S0, 408], [BX.S0, 34]], 1);
+  wire('S0', [[110, 408], [110, 430], [125, 430]], 1); dot('S0', 110, 408, 1);
+  var n0 = DD.gate(svg, 'not', 125, 416, { cls: 'ctrl' });
+  wire('nS0', [n0.out, [BX.nS0, 430], [BX.nS0, 34]], 1);
+  [['S1', BX.S1], ["S1'", BX.nS1], ['S0', BX.S0], ["S0'", BX.nS0]].forEach(function (b) { DD.text(svg, b[1], 26, b[0], 'lbl small'); });
+
+  /* ---- four AND gates, one per data input ---- */
+  var ands = [], outT = [];
+  for (var k = 0; k < 4; k++) (function (k) {
+    var g = DD.gate(svg, 'and', 300, cy[k] - 25, { n: 3, h: 50, w: 64 });
+    ands.push(g);
+    wire('I' + k, [[70, g.ins[0][1]], g.ins[0]]);
+    var a = (k & 2) ? 'S1' : 'nS1', b = (k & 1) ? 'S0' : 'nS0';
+    wire(a, [[BX[a], g.ins[1][1]], g.ins[1]], 1); dot(a, BX[a], g.ins[1][1], 1);
+    wire(b, [[BX[b], g.ins[2][1]], g.ins[2]], 1); dot(b, BX[b], g.ins[2][1], 1);
+    DD.text(svg, 300 + 26, cy[k] + 4, 'AND ' + k, 'lbl small');
+    outT.push(DD.text(svg, 378, cy[k] - 8, '0', 'lbl val'));
+  })(k);
+
+  /* ---- OR gate and output ---- */
+  var or = DD.gate(svg, 'or', 470, 80, { n: 4, h: 200, w: 84 });
+  for (k = 0; k < 4; k++) {
+    var xr = 400 + 14 * (k < 2 ? k : 3 - k);       /* stagger the vertical runs so they don't overlap */
+    wire('A' + k, [ands[k].out, [xr, cy[k]], [xr, or.ins[k][1]], or.ins[k]]);
+  }
+  wire('Y', [or.out, [604, or.out[1]]]);
+  var y = DD.led(svg, 618, or.out[1], 13);
+  DD.text(svg, 618, or.out[1] + 34, 'Y', 'lbl title');
+  var yT = DD.text(svg, 580, or.out[1] - 10, '0', 'lbl val');
+
+  /* ---- input pins drawn in the schematic ---- */
+  var pins = [];
+  for (k = 0; k < 4; k++) (function (k) {
+    pins[k] = DD.pin(svg, 70, ands[k].ins[0][1], 'I' + k, { onToggle: function (v) { I[k] = v; render(); } });
+  })(k);
+  var pS1 = DD.pin(svg, 70, 360, 'S1', { ctrl: 1, onToggle: function (v) { S1 = v; render(); } });
+  var pS0 = DD.pin(svg, 70, 408, 'S0', { ctrl: 1, onToggle: function (v) { S0 = v; render(); } });
+
+  /* ---- HTML controls ---- */
+  var setB = [];
+  for (k = 0; k < 4; k++) (function (k) {
+    setB[k] = DD.bitButton(document.getElementById('b' + k), function () { return I[k]; }, function (v) { I[k] = v; render(); });
+  })(k);
+  var setS1 = DD.bitButton(document.getElementById('bs1'), function () { return S1; }, function (v) { S1 = v; render(); });
+  var setS0 = DD.bitButton(document.getElementById('bs0'), function () { return S0; }, function (v) { S0 = v; render(); });
+  var tt = document.getElementById('tt');
+  tt.querySelectorAll('tbody tr').forEach(function (tr) {
+    tr.addEventListener('click', function () { var s = +tr.dataset.k; S1 = s >> 1; S0 = s & 1; render(); });
+  });
+  function selectNext() { var s = (S1 * 2 + S0 + 1) & 3; S1 = s >> 1; S0 = s & 1; render(); }
+  document.getElementById('step').addEventListener('click', selectNext);
+  var sweepBtn = document.getElementById('sweep');
+  sweepBtn.addEventListener('click', async function () {
+    sweepBtn.disabled = true; S1 = 0; S0 = 0; render();
+    for (var i = 0; i < 3; i++) { await DD.sleep(900); selectNext(); }
+    sweepBtn.disabled = false;
+  });
+
+  function render() {
+    var sel = S1 * 2 + S0;
+    var v = { S1: S1, nS1: 1 - S1, S0: S0, nS0: 1 - S0, Y: I[sel] };
+    for (var k = 0; k < 4; k++) {
+      v['I' + k] = I[k];
+      var en = (((k >> 1) & 1) === S1) && ((k & 1) === S0);
+      v['A' + k] = en ? I[k] : 0;
+      ands[k].body.classList.toggle('ctrl', en);
+      ands[k].body.classList.toggle('hi', en);
+      DD.setVal(outT[k], v['A' + k]);
+      pins[k].set(I[k]); setB[k](I[k]);
+    }
+    for (var n in W) DD.setHi(W[n], v[n]);
+    n1.set(1 - S1); n0.set(1 - S0); or.set(v.Y);
+    y.set(v.Y); DD.setVal(yT, v.Y);
+    pS1.set(S1); pS0.set(S0); setS1(S1); setS0(S0);
+    DD.markRow(tt, sel);
+    document.getElementById('fn').textContent = 'S1 S0 = ' + S1 + S0 + ' → Y = I' + sel + ' = ' + v.Y;
+  }
+  render();
+})();
+</script>
+</body>
+</html>

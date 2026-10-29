@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Digital Design Illustrations</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Shell: fixed sidebar with grouped component links, the selected page in an iframe. */
+  html, body { height: 100%; }
+  body { display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; }
+  .side {
+    border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto;
+    padding: max(18px, env(safe-area-inset-top, 0px)) 14px 24px max(14px, env(safe-area-inset-left, 0px));
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .brand { display: grid; gap: 2px; padding: 0 8px; }
+  .brand b { font-size: 1.05rem; font-weight: 600; line-height: 1.25; }
+  .brand span { font-size: .8rem; color: var(--muted); }
+  nav h2 {
+    font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    margin: 0 0 4px; padding: 0 8px;
+  }
+  nav ul { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 2px; }
+  nav a {
+    display: grid; gap: 0; padding: 7px 8px 7px 10px; border-radius: 6px; text-decoration: none; color: var(--fg);
+    border-left: 3px solid transparent;
+  }
+  nav a span { font-size: .78rem; color: var(--muted); }
+  nav a:hover { background: var(--bg); }
+  nav a[aria-current="page"] { background: var(--hi-soft); border-left-color: var(--hi); }
+  nav a[aria-current="page"] b { color: var(--hi); }
+  nav a b { font-weight: 500; font-size: .92rem; }
+  .theme { margin-top: auto; display: flex; gap: 4px; padding: 0 8px; }
+  .theme button {
+    flex: 1; font: inherit; font-size: .8rem; padding: 5px 0; border: 1px solid var(--line); background: var(--panel);
+    color: var(--muted); border-radius: 5px; cursor: pointer;
+  }
+  .theme button[aria-pressed="true"] { color: var(--fg); border-color: var(--fg); }
+  main { position: relative; min-width: 0; }
+  iframe { border: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
+
+  /* phones: the sidebar becomes a top bar with a dropdown */
+  .mnav { display: none; }
+  @media (max-width: 760px) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    .side { display: none; }
+    .mnav {
+      display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--line); background: var(--panel);
+      padding: max(10px, env(safe-area-inset-top, 0px)) 16px 10px;
+    }
+    .mnav b { font-size: .95rem; font-weight: 600; white-space: nowrap; }
+    .mnav select { flex: 1; min-width: 0; font-family: var(--sans); font-size: .95rem; }
+  }
+</style>
+</head>
+<body>
+<aside class="side">
+  <div class="brand"><b>Digital Design Illustrations</b><span>Interactive circuits. Pick a component.</span></div>
+  <nav id="nav" aria-label="Components"></nav>
+  <div class="theme" role="group" aria-label="Theme">
+    <button type="button" data-t="system">Auto</button>
+    <button type="button" data-t="light">Light</button>
+    <button type="button" data-t="dark">Dark</button>
+  </div>
+</aside>
+<div class="mnav">
+  <b>Digital Design</b>
+  <select id="msel" aria-label="Component"></select>
+</div>
+<main><iframe id="view" title="Component illustration"></iframe></main>
+
+<script src="assets/components.js"></script>
+<script>
+(function () {
+  var groups = window.DD_COMPONENTS, nav = document.getElementById('nav'), sel = document.getElementById('msel');
+  var view = document.getElementById('view'), byId = {}, first = null, theme = 'system';
+  groups.forEach(function (g) {
+    var h = document.createElement('h2'); h.textContent = g.group; nav.appendChild(h);
+    var ul = document.createElement('ul'); nav.appendChild(ul);
+    var og = document.createElement('optgroup'); og.label = g.group; sel.appendChild(og);
+    g.items.forEach(function (it) {
+      byId[it.id] = it; if (!first) first = it.id;
+      var li = document.createElement('li'), a = document.createElement('a');
+      a.href = '#' + it.id; a.dataset.id = it.id;
+      a.innerHTML = '<b></b><span></span>';
+      a.querySelector('b').textContent = it.title; a.querySelector('span').textContent = it.sub;
+      li.appendChild(a); ul.appendChild(li);
+      var o = document.createElement('option'); o.value = it.id; o.textContent = it.title; og.appendChild(o);
+    });
+  });
+  sel.addEventListener('change', function () { location.hash = sel.value; });
+
+  function show() {
+    var id = location.hash.slice(1);
+    if (!byId[id]) id = first;
+    var it = byId[id];
+    if (view.dataset.id !== id) { view.dataset.id = id; view.src = it.file; }
+    document.title = it.title + ' · Digital Design Illustrations';
+    nav.querySelectorAll('a').forEach(function (a) {
+      if (a.dataset.id === id) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    sel.value = id;
+  }
+  window.addEventListener('hashchange', show);
+
+  /* theme: applied here and forwarded to the page in the iframe */
+  function sendTheme() { try { view.contentWindow.postMessage({ type: 'dd-theme', theme: theme }, '*'); } catch (e) {} }
+  function setTheme(t) {
+    theme = t;
+    if (t === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', t);
+    document.querySelectorAll('.theme button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.t === t ? 'true' : 'false'); });
+    try { localStorage.setItem('dd-theme', t); } catch (e) {}
+    sendTheme();
+  }
+  document.querySelectorAll('.theme button').forEach(function (b) { b.addEventListener('click', function () { setTheme(b.dataset.t); }); });
+  view.addEventListener('load', sendTheme);
+  var saved = 'system';
+  try { saved = localStorage.getItem('dd-theme') || 'system'; } catch (e) {}
+  setTheme(saved);
+  show();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Up Counter</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+  /* the C+1 value travelling round the feedback bus into the register */
+  .sch .pulse.travel { animation: ctr-travel .6s linear forwards; }
+  @keyframes ctr-travel { 0% { opacity: 1; offset-distance: 0%; } 100% { opacity: 1; offset-distance: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .sch .pulse.travel { animation-duration: .01s; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#counter">← All components</a>
+    <p class="kicker">Sequential</p>
+    <h1>Up Counter</h1>
+    <p>A 4-bit up counter. A 4-bit load/clear register holds the count C; a <code>+1</code> block adds one to C and feeds it back to the register's data input. With <code>cnt</code> high, every rising edge loads that incremented value. When the count reaches 15 the terminal-count line <code>tc</code> goes high, and the next increment wraps around to 0.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>4-bit up counter</h2>
+      <svg id="sch" class="sch" viewBox="0 0 680 392" width="680" height="392" role="img"
+           aria-label="A 4-bit register with clr, ld and clock inputs. Its output C feeds a +1 block whose output loops back to the register's D input, and a 4-input AND gate that produces tc."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>clr / cnt / clk at 1</span>
+        <span>Thick lines are 4-bit buses. Click clr or cnt to flip it.</span>
+      </div>
+      <p class="note">The register's <code>ld</code> input is driven by <code>cnt</code>, so it loads <code>C + 1</code> only on cycles where <code>cnt = 1</code>. <code>clr</code> forces 0000. <code>tc = C3 · C2 · C1 · C0</code>.</p>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Controls</h2>
+      <div class="readout"><b id="cdec">0</b><span id="cbin">0000</span><span>tc = <span id="tcv">0</span></span></div>
+      <div class="row">
+        <button class="sw" id="bclr"><span class="dot"></span><code>clr</code> <span class="st">0</span></button>
+        <button class="sw" id="bcnt"><span class="dot"></span><code>cnt</code> <span class="st">1</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="clk">Pulse clock ⏵</button>
+        <button class="btn" id="play">Run to wrap</button>
+        <button class="btn" id="reset">Reset</button>
+      </div>
+      <h2 style="margin-top:6px">Function table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>clr</th><th>cnt</th><th class="sep">Function</th><th>next C</th></tr></thead>
+        <tbody>
+          <tr class="pick" data-k="00"><td>0</td><td>0</td><td class="sep">Maintain</td><td>C</td></tr>
+          <tr class="pick" data-k="01"><td>0</td><td>1</td><td class="sep">Increment</td><td>C + 1</td></tr>
+          <tr class="pick" data-k="10"><td>1</td><td>0</td><td class="sep">Clear (reset)</td><td>0</td></tr>
+          <tr class="pick" data-k="11"><td>1</td><td>1</td><td class="sep">Maintain</td><td>C</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:0">Click a row to set clr and cnt.</p>
+    </section>
+  </div>
+
+  <section class="panel scroll">
+    <h2>Timing diagram</h2>
+    <svg id="tim" role="img" aria-label="Timing diagram of clr, cnt, clk, C and tc"></svg>
+    <p class="note">Each column is one clock cycle. C updates on the rising edge; tc is combinational, so it is high during the whole time C = 15.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>Register plus adder</h3><p>A counter is just a register whose next value is computed from its current value. Here the logic is a <code>+1</code> incrementer; swap it for <code>−1</code> and you have a down counter.</p></div>
+    <div><h3>Terminal count</h3><p><code>tc</code> is 1 only when all four bits are 1 (C = 15). It warns that the next increment wraps to 0, and it can drive the <code>cnt</code> input of a second counter to chain two 4-bit counters into an 8-bit one.</p></div>
+    <div><h3>Why clr + cnt maintains</h3><p>In this design <code>clr</code> and <code>cnt</code> both going high is not a valid command, so the register simply holds its value. The function table lists all four combinations.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var C = 0, clr = 0, cnt = 1, hist = [], busy = false;
+  var FN = { '00': 'Maintain', '01': 'Increment', '10': 'Clear', '11': 'Maintain' };
+  function key() { return '' + clr + cnt; }
+  function nextC() { var k = key(); return k === '01' ? (C + 1) & 15 : k === '10' ? 0 : C; }
+  var W = {};                      /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, cls) { return reg(name, DD.wire(svg, pts, cls)); }
+  function dot(name, x, y, cls) { return reg(name, DD.dot(svg, x, y, cls)); }
+  function el(t, a) { return DD.el(t, a, svg); }
+
+  el('rect', { x: 10, y: 10, width: 660, height: 372, rx: 6, 'class': 'frame' });
+  DD.text(svg, 22, 28, '4-bit up counter (4 flip-flops inside the register)', 'lbl small', 'start');
+
+  /* ---- register ---- */
+  var rx = 230, ry = 100, rw = 240, rh = 100, inX = rx + rw / 2;
+  var regB = DD.block(svg, rx, ry, rw, rh, { clk: 82 });
+  DD.text(svg, inX, ry + 24, '4-BIT REGISTER', 'lbl name');
+  var regT = DD.text(svg, inX, ry + 66, '0000', 'lbl big');
+  DD.text(svg, rx + 7, ry + 26, 'clr', 'lbl small', 'start');
+  DD.text(svg, rx + 7, ry + 56, 'ld', 'lbl small', 'start');
+
+  /* ---- control inputs on the left ---- */
+  wire('clr', [[150, ry + 22], [rx, ry + 22]], 'ctrl');
+  wire('cnt', [[150, ry + 52], [rx, ry + 52]], 'ctrl');
+  wire('clk', [[126, ry + 82], [rx, ry + 82]], 'ctrl');
+  DD.text(svg, 120, ry + 86, 'clk', 'lbl', 'end');
+  var edge = el('path', { d: 'M126,' + (ry + 82) + 'H' + rx, 'class': 'edge' });
+
+  /* ---- output bus C, branching to the +1 block and to the tc gate ---- */
+  var jR = 240, jL = 276;
+  DD.wire(svg, [[inX, ry + rh], [inX, 330]], 'bus');
+  DD.dot(svg, inX, jR); DD.dot(svg, inX, jL);
+  var cT = DD.text(svg, inX + 10, 326, 'C = 0000 (0)', 'lbl val', 'start');
+
+  /* +1 block and feedback into D */
+  var px = 500, pw = 80, ph = 50;
+  DD.wire(svg, [[inX, jR], [px, jR]], 'bus');
+  var plusB = DD.block(svg, px, jR - ph / 2, pw, ph, { title: '+1' });
+  var plusT = DD.text(svg, px + pw / 2, jR - ph / 2 - 10, 'C+1 = 0001', 'lbl small');
+  var fb = 'M' + (px + pw) + ',' + jR + 'H620V50H' + inX + 'V' + ry;
+  DD.wire(svg, fb, 'bus');
+  DD.text(svg, inX - 8, 82, 'D', 'lbl', 'end');
+  var dT = DD.text(svg, inX + 8, 82, '0001', 'lbl val', 'start');
+  var pulse = el('circle', { r: 7, 'class': 'pulse' });
+  pulse.style.offsetPath = 'path("' + fb + '")';
+  pulse.style.offsetRotate = '0deg';
+
+  /* tc = C3·C2·C1·C0: the bus splits into its four bits */
+  var g = DD.gate(svg, 'and', 110, 290, { n: 4, h: 80, w: 84 });
+  var rip = 60, lastY = g.ins[3][1];
+  DD.wire(svg, [[inX, jL], [rip, jL], [rip, lastY]], 'bus');
+  for (var b = 0; b < 4; b++) {
+    var yy = g.ins[b][1];
+    wire('c' + (3 - b), [[rip, yy], g.ins[b]]);
+    if (b < 3) dot('c' + (3 - b), rip, yy);
+    DD.text(svg, rip + 25, yy - 3, 'C' + (3 - b), 'lbl small');
+  }
+  wire('tc', [g.out, [232, g.out[1]]]);
+  var tcLed = DD.led(svg, 244, g.out[1], 11, 'tc');
+  var tcT = DD.text(svg, g.out[0] + 14, g.out[1] - 7, '0', 'lbl val');
+
+  /* ---- input pins ---- */
+  var pClr = DD.pin(svg, 150, ry + 22, 'clr', { ctrl: 1, onToggle: function (v) { if (busy) return; clr = v; render(); } });
+  var pCnt = DD.pin(svg, 150, ry + 52, 'cnt', { ctrl: 1, onToggle: function (v) { if (busy) return; cnt = v; render(); } });
+
+  /* ---- HTML controls ---- */
+  var setClr = DD.swButton(document.getElementById('bclr'), function () { return clr; }, function (v) { if (busy) return; clr = v; render(); });
+  var setCnt = DD.swButton(document.getElementById('bcnt'), function () { return cnt; }, function (v) { if (busy) return; cnt = v; render(); });
+  var tt = document.getElementById('tt');
+  tt.querySelectorAll('tbody tr').forEach(function (tr) {
+    tr.addEventListener('click', function () { if (busy) return; clr = +tr.dataset.k[0]; cnt = +tr.dataset.k[1]; render(); });
+  });
+  var tim = new DD.Timing(document.getElementById('tim'));
+
+  function pulseClock() {
+    if (busy) return Promise.resolve();
+    busy = true;
+    var k = key();
+    DD.setHi(W.clk, 1);
+    DD.restart(edge, 'flash-once');
+    if (k === '01') { DD.restart(pulse, 'travel'); plusB.hot(1); }
+    if (k === '10') regB.hot(1);
+    return new Promise(function (res) {
+      setTimeout(function () {
+        hist.push({ clr: clr, cnt: cnt, c: C });
+        C = nextC();
+        pulse.classList.remove('travel'); plusB.hot(0); regB.hot(0);
+        busy = false; render(); res();
+      }, 650);
+    });
+  }
+
+  function render() {
+    var tc = C === 15 ? 1 : 0, inc = (C + 1) & 15, k = key();
+    var v = { clr: clr, cnt: cnt, clk: busy ? 1 : 0, tc: tc };
+    for (var b = 0; b < 4; b++) v['c' + b] = (C >> b) & 1;
+    for (var n in W) DD.setHi(W[n], v[n]);
+    g.set(tc); tcLed.set(tc); DD.setVal(tcT, tc);
+    regT.textContent = DD.bin(C, 4);
+    cT.textContent = 'C = ' + DD.bin(C, 4) + ' (' + C + ')';
+    plusT.textContent = 'C+1 = ' + DD.bin(inc, 4);
+    dT.textContent = DD.bin(inc, 4);
+    pClr.set(clr); pCnt.set(cnt); setClr(clr); setCnt(cnt);
+    DD.markRow(tt, k);
+    document.getElementById('cdec').textContent = C;
+    document.getElementById('cbin').textContent = DD.bin(C, 4);
+    document.getElementById('tcv').textContent = tc;
+    document.getElementById('fn').textContent = 'Next edge: ' + FN[k] + ' → ' + nextC() + (k === '01' && C === 15 ? ' (wrap)' : '');
+
+    /* timing diagram: inputs held per cycle, C and tc change at the edge */
+    var all = hist.concat([{ clr: clr, cnt: cnt, c: C }]), N = all.length;
+    var cs = all.map(function (r) { return r.c; });
+    tim.render({
+      rows: [
+        { label: 'clr', kind: 'bit', values: DD.Timing.full(all.map(function (r) { return r.clr; })) },
+        { label: 'cnt', kind: 'bit', values: DD.Timing.full(all.map(function (r) { return r.cnt; })) },
+        { label: 'clk', kind: 'clk' },
+        { label: 'C', kind: 'bus', values: DD.Timing.registered(cs, N) },
+        { label: 'tc', kind: 'bit', values: DD.Timing.registered(cs.map(function (c) { return c === 15 ? 1 : 0; }), N) }
+      ],
+      cycles: N, edges: hist.length, pending: true
+    });
+    /* empty grid columns up to 10 cycles, so the diagram has room to grow into */
+    var ts = tim.svg, H = +ts.getAttribute('height');
+    for (var c = N + 1; c <= 10; c++) DD.el('line', { x1: 64 + c * 60, y1: 6, x2: 64 + c * 60, y2: H - 14, 'class': 't-grid' }, ts);
+  }
+
+  document.getElementById('clk').addEventListener('click', function () { pulseClock(); });
+  document.getElementById('reset').addEventListener('click', function () { if (busy) return; C = 0; clr = 0; cnt = 1; hist = []; render(); });
+  var playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', async function () {
+    if (busy) return;
+    playBtn.disabled = true;
+    clr = 0; cnt = 1; render();
+    var steps = 0;
+    do { await DD.sleep(350); await pulseClock(); steps++; } while (C !== 0 && steps < 17);
+    playBtn.disabled = false;
+  });
+  render();
+})();
+</script>
+</body>
+</html>

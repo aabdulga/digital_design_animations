@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SR Latch</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+  /* propagation log: one line per gate delay */
+  .log {
+    font-family: var(--mono); font-size: .82rem; height: 200px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  }
+  .log p { margin: 0 0 4px; }
+  .log p.n { color: var(--muted); }
+  .log p.w { color: var(--warn); }
+  .log .t { color: var(--muted); display: inline-block; width: 3.5em; }
+  .log b { font-weight: 600; }
+  /* wide screens: log under the schematic, controls beside both; phones: schematic, controls, log */
+  @media (min-width: 821px) { #ctlp { grid-column: 2; grid-row: 1 / span 2; } #logp { grid-column: 1; grid-row: 2; } }
+  #tt td:last-child, #tt th:last-child { text-align: left; }
+  .speed { display: flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); }
+  .speed input { width: 110px; }
+  .speed span { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#sr-latch">← All components</a>
+    <p class="kicker">Sequential</p>
+    <h1>NOR SR Latch</h1>
+    <p>Two cross-coupled NOR gates. Each gate's output feeds the other's input, so the circuit remembers. Flip S or R and watch the change propagate one gate delay at a time.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Gate-level circuit</h2>
+      <svg id="sch" class="sch" viewBox="0 30 520 244" width="680" height="319" role="img"
+           aria-label="SR latch: gate 1 is a NOR of R and Q-bar giving Q; gate 2 is a NOR of Q and S giving Q-bar. Each output feeds back to the other gate's input."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>logic 1</span>
+        <span>Click the S or R square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl" id="ctlp">
+      <h2>Inputs</h2>
+      <div class="row">
+        <button class="bit" id="bS"><small>S set</small><span class="v">0</span></button>
+        <button class="bit" id="bR"><small>R reset</small><span class="v">0</span></button>
+      </div>
+      <div class="fn" id="status"></div>
+      <div class="row">
+        <button class="btn primary" id="btnWalk">Play walkthrough</button>
+        <button class="btn" id="btnRace">Release S and R together</button>
+        <button class="btn" id="btnStop" disabled>Stop</button>
+      </div>
+      <label class="speed">speed <input type="range" id="speed" min="150" max="1400" step="50" value="700"> <span id="spv">700 ms / gate</span></label>
+      <h2 style="margin-top:6px">Characteristic table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>S</th><th>R</th><th class="sep">Q</th><th>Q&#773;</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr data-k="00"><td>0</td><td>0</td><td class="sep x">Q</td><td class="x">Q&#773;</td><td>Hold previous state</td></tr>
+          <tr data-k="10"><td>1</td><td>0</td><td class="sep">1</td><td>0</td><td>Set</td></tr>
+          <tr data-k="01"><td>0</td><td>1</td><td class="sep">0</td><td>1</td><td>Reset</td></tr>
+          <tr data-k="11"><td>1</td><td>1</td><td class="sep">0</td><td>0</td><td>Forbidden (both low)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel" id="logp">
+      <h2>Propagation log</h2>
+      <div id="log" class="log" aria-live="polite"><p class="n">Stable at power-up with S = R = 0, Q = 0, Q&#773; = 1. Click a switch.</p></div>
+      <p class="note">Gate 1 computes <b>Q = NOT(R OR Q&#773;)</b>; gate 2 computes <b>Q&#773; = NOT(S OR Q)</b>. Each step in the log is one gate delay: both gates read their inputs and update their outputs at once.</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>Memory from feedback</h3><p>With S = R = 0 each NOR gate just inverts the other gate's output. Two inverters in a loop have two stable states, Q = 1 or Q = 0, and the loop keeps whichever one it is in. That is one stored bit.</p></div>
+    <div><h3>Set and reset</h3><p>A 1 on any NOR input forces its output to 0. S = 1 pulls Q&#773; low, which makes Q rise; R = 1 pulls Q low, which makes Q&#773; rise. Releasing the input changes nothing: the feedback holds the new state.</p></div>
+    <div><h3>Why S = R = 1 is forbidden</h3><p>Both outputs are forced to 0, so Q and Q&#773; stop being complements. Worse, if S and R then drop together, both gates flip at the same time and keep flipping: a race that real hardware settles by whichever gate is a hair faster.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var st = { S: 0, R: 0, Q: 0, Qn: 1 };
+  var busy = false, stopFlag = false, t = 0;
+  var QB = 'Q̅';
+  var W = {};                                     /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts) { return reg(name, DD.wire(svg, pts)); }
+  function dot(name, x, y) { return reg(name, DD.dot(svg, x, y)); }
+
+  /* ---- the two NOR gates ---- */
+  var g1 = DD.gate(svg, 'nor', 220, 54, { h: 48, label: 'NOR' });   /* inputs R, Q̄ -> Q */
+  var g2 = DD.gate(svg, 'nor', 220, 174, { h: 48, label: 'NOR' });  /* inputs Q, S -> Q̄ */
+  DD.text(svg, 248, 44, 'gate 1', 'lbl small');
+  DD.text(svg, 248, 240, 'gate 2', 'lbl small');
+
+  /* ---- inputs ---- */
+  wire('R', [[90, g1.ins[0][1]], g1.ins[0]]);
+  wire('S', [[90, g2.ins[1][1]], g2.ins[1]]);
+
+  /* ---- outputs and the cross-coupled feedback (the two diagonals cross without joining) ---- */
+  var JX = 320, FX = 180;
+  wire('Q', [g1.out, [447, g1.out[1]]]);
+  wire('Q', [[JX, g1.out[1]], [JX, 118], [FX, 158], [FX, g2.ins[0][1]], g2.ins[0]]);
+  dot('Q', JX, g1.out[1]);
+  wire('Qn', [g2.out, [447, g2.out[1]]]);
+  wire('Qn', [[JX, g2.out[1]], [JX, 158], [FX, 118], [FX, g1.ins[1][1]], g1.ins[1]]);
+  dot('Qn', JX, g2.out[1]);
+
+  var ledQ = DD.led(svg, 460, g1.out[1], 13);
+  DD.text(svg, 482, g1.out[1] + 6, 'Q', 'lbl title', 'start');
+  var ledQn = DD.led(svg, 460, g2.out[1], 13);
+  DD.text(svg, 482, g2.out[1] + 6, QB, 'lbl title', 'start');
+
+  var lvR = DD.text(svg, 150, g1.ins[0][1] - 8, '0', 'lbl val');
+  var lvS = DD.text(svg, 150, g2.ins[1][1] + 20, '0', 'lbl val');
+  var lvQ = DD.text(svg, 390, g1.out[1] - 8, '0', 'lbl val');
+  var lvQn = DD.text(svg, 390, g2.out[1] + 20, '1', 'lbl val');
+  DD.text(svg, 260, 264, 'NOR: output is 1 only when both inputs are 0', 'lbl small');
+
+  var pR = DD.pin(svg, 90, g1.ins[0][1], 'R', { onToggle: function () { userToggle('R'); } });
+  DD.text(svg, 60, g1.ins[0][1] + 18, 'reset', 'lbl small', 'end');
+  var pS = DD.pin(svg, 90, g2.ins[1][1], 'S', { onToggle: function () { userToggle('S'); } });
+  DD.text(svg, 60, g2.ins[1][1] + 18, 'set', 'lbl small', 'end');
+
+  /* ---- HTML controls ---- */
+  var $ = function (id) { return document.getElementById(id); };
+  var log = $('log'), status = $('status'), speed = $('speed'), tt = $('tt');
+  var setBS = DD.bitButton($('bS'), function () { return st.S; }, function () { userToggle('S'); });
+  var setBR = DD.bitButton($('bR'), function () { return st.R; }, function () { userToggle('R'); });
+  speed.addEventListener('input', function () { $('spv').textContent = speed.value + ' ms / gate'; });
+  function wait(ms) { return DD.sleep(ms); }
+  function delay() { return +speed.value; }
+
+  function render() {
+    var v = { R: st.R, S: st.S, Q: st.Q, Qn: st.Qn };
+    for (var n in W) DD.setHi(W[n], v[n]);
+    g1.set(st.Q); g2.set(st.Qn);
+    ledQ.set(st.Q); ledQn.set(st.Qn);
+    pR.set(st.R); pS.set(st.S); setBR(st.R); setBS(st.S);
+    DD.setVal(lvR, st.R); DD.setVal(lvS, st.S); DD.setVal(lvQ, st.Q); DD.setVal(lvQn, st.Qn);
+    DD.markRow(tt, '' + st.S + st.R);
+  }
+  function setStatus(text, warn) { status.textContent = text; status.classList.toggle('warn', !!warn); }
+  function describe() {
+    if (st.S && st.R) return setStatus('FORBIDDEN — S = R = 1 forces Q = ' + QB + ' = 0', true);
+    if (st.S) return setStatus('SET — Q = 1');
+    if (st.R) return setStatus('RESET — Q = 0');
+    setStatus('HOLD — Q = ' + st.Q + ' (remembered)');
+  }
+  function addLog(html, cls) {
+    var p = document.createElement('p'); if (cls) p.className = cls;
+    p.innerHTML = '<span class="t">t=' + t + '</span>' + html; log.appendChild(p); log.scrollTop = log.scrollHeight;
+  }
+  function flash() {
+    [g1, g2].forEach(function (g) {
+      g.body.classList.add('flash');
+      setTimeout(function () { g.body.classList.remove('flash'); }, Math.min(300, delay() * 0.5));
+    });
+  }
+
+  /* evaluate both gates together, one gate delay per step, until nothing changes */
+  async function propagate() {
+    var steps = 0;
+    while (steps < 8) {
+      var nQ = (st.R || st.Qn) ? 0 : 1, nQn = (st.S || st.Q) ? 0 : 1;
+      if (nQ === st.Q && nQn === st.Qn) { addLog('stable', 'n'); describe(); return true; }
+      flash(); await wait(delay());
+      if (stopFlag) return false;
+      var parts = [];
+      if (nQ !== st.Q) parts.push('gate 1: NOT(R=' + st.R + ' OR ' + QB + '=' + st.Qn + ') → Q=' + nQ);
+      if (nQn !== st.Qn) parts.push('gate 2: NOT(S=' + st.S + ' OR Q=' + st.Q + ') → ' + QB + '=' + nQn);
+      st.Q = nQ; st.Qn = nQn; t++; render(); addLog(parts.join(' &nbsp;|&nbsp; '));
+      steps++;
+    }
+    addLog('race: both gates keep flipping together. A real latch settles on whichever gate is a hair faster.', 'w');
+    setStatus('RACE — outcome depends on gate mismatch', true);
+    await wait(delay());
+    var pick = Math.random() < 0.5; st.Q = pick ? 1 : 0; st.Qn = pick ? 0 : 1; t++; render();
+    addLog('settled by chance on Q=' + st.Q, 'w');
+    return true;
+  }
+
+  async function setInput(name, v, note) {
+    if (st[name] === v) return;
+    st[name] = v; t++; render();
+    addLog('<b>' + name + ' → ' + v + '</b>' + (note ? ' &nbsp;' + note : ''));
+    await propagate();
+  }
+  async function userToggle(name) {
+    if (busy) return; busy = true; stopFlag = false;
+    await setInput(name, st[name] ? 0 : 1);
+    busy = false;
+  }
+
+  var walk = [
+    ['S', 1, 'pull S high: gate 2 sees a 1, so ' + QB + ' must fall'],
+    ['S', 0, 'release S: nothing changes — Q feeds back and holds gate 2 low'],
+    ['R', 1, 'pull R high: gate 1 sees a 1, so Q must fall'],
+    ['R', 0, 'release R: ' + QB + ' holds gate 1 low. The latch remembers the reset'],
+    ['S', 1, 'set again'],
+    ['R', 1, 'now R too: both gates see a 1, both outputs 0. Q and ' + QB + ' are no longer complements']
+  ];
+  function lock(on) { busy = on; $('btnWalk').disabled = on; $('btnRace').disabled = on; $('btnStop').disabled = !on; }
+  $('btnWalk').addEventListener('click', async function () {
+    if (busy) return; lock(true); stopFlag = false;
+    log.innerHTML = ''; t = 0; addLog('walkthrough start', 'n');
+    for (var i = 0; i < walk.length; i++) {
+      await setInput(walk[i][0], walk[i][1], walk[i][2]); if (stopFlag) break;
+      await wait(delay() * 1.6); if (stopFlag) break;
+    }
+    if (!stopFlag) { addLog('releasing S and R at the same instant…', 'n'); st.S = 0; st.R = 0; t++; render(); await propagate(); }
+    lock(false);
+  });
+  $('btnRace').addEventListener('click', async function () {
+    if (busy) return; lock(true); stopFlag = false;
+    if (!(st.S && st.R)) {
+      st.S = 1; st.R = 1; t++; render(); addLog('<b>S → 1, R → 1</b> (forbidden input)');
+      await propagate(); if (stopFlag) { lock(false); return; }
+      await wait(delay());
+    }
+    st.S = 0; st.R = 0; t++; render(); addLog('<b>S → 0, R → 0</b> at the same instant');
+    await propagate(); lock(false);
+  });
+  $('btnStop').addEventListener('click', function () { stopFlag = true; });
+
+  render(); describe();
+})();
+</script>
+</body>
+</html>

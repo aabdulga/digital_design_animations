@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Half &amp; Full Adder</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#full-adder">← All components</a>
+    <p class="kicker">Combinational</p>
+    <h1>Half &amp; Full Adder</h1>
+    <p>A full adder adds three bits: A, B and a carry-in Cin from the column to its right. It gives a sum bit S and a carry-out Cout. Here it is built from two half adders. The first adds A and B. The second adds that partial sum P to Cin. An OR gate merges the two carries, because at most one of them can be 1.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Gate-level circuit</h2>
+      <svg id="sch" class="sch" viewBox="0 0 666 244" width="666" height="244" role="img"
+           aria-label="Half adder 1: an AND gate and an XOR gate on A and B give carry G1 and partial sum P. Half adder 2: an AND gate and an XOR gate on P and Cin give carry G2 and sum S. An OR gate on G1 and G2 gives Cout."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>carry at 1</span>
+        <span>Click any input square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Inputs</h2>
+      <div class="row"><span class="lab">Bits</span>
+        <button class="bit" id="ba"><small>A</small><span class="v">0</span></button>
+        <button class="bit" id="bb"><small>B</small><span class="v">0</span></button>
+        <button class="bit ctrl" id="bc"><small>Cin</small><span class="v">0</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="step">Next row ⏵</button>
+        <button class="btn" id="sweep">Sweep all eight</button>
+      </div>
+      <h2 style="margin-top:6px">Truth table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>A</th><th>B</th><th>Cin</th><th class="sep">Cout</th><th>S</th><th class="sep">sum</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note" style="margin:0">Click a row to set the inputs.</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>The half adder</h3><p>Adding two bits needs only two gates: <code>S = A⊕B</code> and <code>C = A·B</code>. The carry is 1 only for 1 + 1 = 10<sub>2</sub>. It has no input for a carry coming in, which is why it is only "half".</p></div>
+    <div><h3>The full adder adds a carry-in</h3><p>Every column of a multi-bit sum except the rightmost one also receives a carry. A second half adder adds Cin to the partial sum P, and <code>Cout = G1 + G2 = AB + Cin(A⊕B)</code>.</p></div>
+    <div><h3>Parity and majority</h3><p><code>S = A⊕B⊕Cin</code> is 1 when an odd number of the three bits are 1. Cout is the majority function: it is 1 when at least two of them are 1. Check both against the table.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var A = 1, B = 1, Cin = 0;
+  var W = {};                                     /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, ctrl) { return reg(name, DD.wire(svg, pts, ctrl ? 'ctrl' : '')); }
+  function dot(name, x, y, ctrl) { return reg(name, DD.dot(svg, x, y, ctrl ? 'ctrl' : '')); }
+  function frame(x, y, w, h, label) {
+    DD.el('rect', { x: x, y: y, width: w, height: h, rx: 6, 'class': 'frame', 'stroke-dasharray': '6 4' }, svg);
+    DD.text(svg, x + 4, y - 6, label, 'lbl name', 'start');
+  }
+
+  /* ---- half adder 1: A, B -> G1 (AND), P (XOR) ---- */
+  frame(128, 20, 134, 162, 'half adder 1');
+  var and1 = DD.gate(svg, 'and', 200, 30, { h: 42, w: 54, cls: 'ctrl' });   /* ins y 44, 58; out y 51 */
+  var xor1 = DD.gate(svg, 'xor', 200, 130, { h: 42, w: 54 });               /* ins y 144, 158; out y 151 */
+  wire('A', [[70, 44], and1.ins[0]]);
+  wire('A', [[150, 44], [150, 144], xor1.ins[0]]); dot('A', 150, 44);
+  wire('B', [[70, 158], xor1.ins[1]]);
+  wire('B', [[170, 158], [170, 58], and1.ins[1]]); dot('B', 170, 158);
+
+  /* ---- half adder 2: P, Cin -> G2 (AND), S (XOR) ---- */
+  frame(316, 76, 120, 110, 'half adder 2');
+  var and2 = DD.gate(svg, 'and', 370, 84, { h: 42, w: 54, cls: 'ctrl' });   /* ins y 98, 112; out y 105 */
+  var xor2 = DD.gate(svg, 'xor', 370, 137, { h: 42, w: 54 });               /* ins y 151, 165; out y 158 */
+  wire('P', [xor1.out, xor2.ins[0]]);
+  wire('P', [[330, 151], [330, 98], and2.ins[0]]); dot('P', 330, 151);
+  wire('Cin', [[70, 224], [350, 224], [350, 112], and2.ins[1]], 1);
+  wire('Cin', [[350, 165], xor2.ins[1]], 1); dot('Cin', 350, 165, 1);
+
+  /* ---- carry merge and outputs ---- */
+  var or = DD.gate(svg, 'or', 496, 37, { h: 42, w: 54, cls: 'ctrl' });      /* ins y 51, 65; out y 58 */
+  wire('G1', [and1.out, or.ins[0]], 1);
+  wire('G2', [and2.out, [460, 105], [460, 65], or.ins[1]], 1);
+  wire('Cout', [or.out, [592, 58]], 1);
+  wire('S', [xor2.out, [592, 158]]);
+  var ledC = DD.led(svg, 605, 58, 13, 'Cout', { ctrl: 1 });
+  var ledS = DD.led(svg, 605, 158, 13, 'S');
+
+  /* value tags on the internal signals */
+  var tag = {
+    P: DD.text(svg, 289, 145, '', 'lbl val'),
+    G1: DD.text(svg, 288, 44, '', 'lbl val', 'start'),
+    G2: DD.text(svg, 466, 96, '', 'lbl val', 'start'),
+    Cout: DD.text(svg, 571, 51, '', 'lbl val'),
+    S: DD.text(svg, 571, 151, '', 'lbl val')
+  };
+
+  /* ---- input pins drawn in the schematic ---- */
+  var pA = DD.pin(svg, 70, 44, 'A', { onToggle: function (v) { A = v; render(); } });
+  var pB = DD.pin(svg, 70, 158, 'B', { onToggle: function (v) { B = v; render(); } });
+  var pC = DD.pin(svg, 70, 224, 'Cin', { ctrl: 1, onToggle: function (v) { Cin = v; render(); } });
+
+  /* ---- HTML controls ---- */
+  var setA = DD.bitButton(document.getElementById('ba'), function () { return A; }, function (v) { A = v; render(); });
+  var setB = DD.bitButton(document.getElementById('bb'), function () { return B; }, function (v) { B = v; render(); });
+  var setC = DD.bitButton(document.getElementById('bc'), function () { return Cin; }, function (v) { Cin = v; render(); });
+  var tt = document.getElementById('tt'), tb = tt.querySelector('tbody');
+  for (var k = 0; k < 8; k++) {
+    var a = k >> 2, b = (k >> 1) & 1, c = k & 1, n = a + b + c;
+    var tr = document.createElement('tr');
+    tr.className = 'pick'; tr.dataset.k = k;
+    tr.innerHTML = '<td>' + a + '</td><td>' + b + '</td><td>' + c + '</td><td class="sep">' + (n >> 1) + '</td><td>' + (n & 1) + '</td><td class="sep">' + n + '</td>';
+    tr.addEventListener('click', function () { setRow(+this.dataset.k); });
+    tb.appendChild(tr);
+  }
+  function setRow(k) { A = k >> 2; B = (k >> 1) & 1; Cin = k & 1; render(); }
+  function nextRow() { setRow((A * 4 + B * 2 + Cin + 1) & 7); }
+  document.getElementById('step').addEventListener('click', nextRow);
+  var sweepBtn = document.getElementById('sweep');
+  sweepBtn.addEventListener('click', async function () {
+    sweepBtn.disabled = true; setRow(0);
+    for (var i = 0; i < 7; i++) { await DD.sleep(800); nextRow(); }
+    sweepBtn.disabled = false;
+  });
+
+  function render() {
+    var v = { A: A, B: B, Cin: Cin };
+    v.P = A ^ B; v.G1 = A & B;
+    v.S = v.P ^ Cin; v.G2 = v.P & Cin;
+    v.Cout = v.G1 | v.G2;
+    for (var n in W) DD.setHi(W[n], v[n]);
+    and1.set(v.G1); xor1.set(v.P); and2.set(v.G2); xor2.set(v.S); or.set(v.Cout);
+    ledC.set(v.Cout); ledS.set(v.S);
+    DD.setVal(tag.P, v.P, 'P='); DD.setVal(tag.G1, v.G1, 'G1='); DD.setVal(tag.G2, v.G2, 'G2=');
+    DD.setVal(tag.Cout, v.Cout); DD.setVal(tag.S, v.S);
+    pA.set(A); pB.set(B); pC.set(Cin); setA(A); setB(B); setC(Cin);
+    DD.markRow(tt, A * 4 + B * 2 + Cin);
+    var sum = A + B + Cin;
+    document.getElementById('fn').textContent = 'A + B + Cin = ' + A + ' + ' + B + ' + ' + Cin + ' = ' + sum +
+      ' = ' + DD.bin(sum, 2) + '₂ → Cout S = ' + v.Cout + ' ' + v.S;
+  }
+  render();
+})();
+</script>
+</body>
+</html>

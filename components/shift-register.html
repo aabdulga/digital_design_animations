@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shift Register</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+  /* travelling bits: one chip per wire segment, slid along it on the clock edge */
+  .sch .chip { opacity: 0; }
+  .sch .chip circle { fill: var(--wire); }
+  .sch .chip.one circle { fill: var(--hi); }
+  .sch .chip text { fill: #fff; font-weight: 600; font-size: 12px; }
+  .sch .chip.travel { animation: sr-travel .55s ease-in-out forwards; }
+  @keyframes sr-travel { 0% { opacity: 1; transform: translateX(0); } 100% { opacity: 1; transform: translateX(var(--dx)); } }
+  .word { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .word input { width: 96px; letter-spacing: .15em; }
+  @media (prefers-reduced-motion: reduce) { .sch .chip.travel { animation-duration: .01s; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#shift-register">← All components</a>
+    <p class="kicker">Sequential</p>
+    <h1>Shift Register</h1>
+    <p>A 4-bit shift-right register. Four D flip-flops share one clock, and each flip-flop's D input is the previous flip-flop's Q. On every rising edge the whole word moves one position to the right: <code>shr_in</code> enters at Q3, and Q0 falls out as <code>shr_out</code>.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>4-bit shift-right register</h2>
+      <svg id="sch" class="sch" viewBox="0 0 740 246" width="740" height="246" role="img"
+           aria-label="Four D flip-flops chained in series with a common clock. shr_in feeds the first D input, each Q feeds the next D, and the last Q is shr_out. Each Q is also tapped as a parallel output."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>clock edge</span>
+        <span>Click the shr_in square to flip it.</span>
+      </div>
+      <p class="note">Next state on the edge: <code>Q3 ← shr_in</code>, <code>Q2 ← Q3</code>, <code>Q1 ← Q2</code>, <code>Q0 ← Q1</code>. Nothing else changes between edges.</p>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Controls</h2>
+      <div class="readout"><b id="qw">0000</b><span>Q3 Q2 Q1 Q0</span></div>
+      <div class="row"><span class="lab">Input</span>
+        <button class="bit" id="bin"><small>shr_in</small><span class="v">0</span></button>
+        <span class="lab" style="font-family:var(--mono)">shr_out = <b id="out">0</b></span>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="clk">Pulse clock ⏵</button>
+        <button class="btn" id="reset">Clear</button>
+      </div>
+      <div class="word"><label class="lab" for="wordin">Serial word</label>
+        <input type="text" id="wordin" value="1011" maxlength="8" inputmode="numeric" pattern="[01]*" aria-label="Serial word to shift in">
+        <button class="btn" id="play">Shift in</button>
+      </div>
+      <p class="note" style="margin:0">Shifts the word in LSB first (rightmost bit first), one bit per cycle, so after 4 edges Q3 Q2 Q1 Q0 holds it in parallel: serial-to-parallel conversion. Four more edges push it out through shr_out: parallel-to-serial.</p>
+      <h2 style="margin-top:6px">State per cycle</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>cycle</th><th>shr_in</th><th class="sep">Q3..Q0</th><th class="sep">shr_out</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note" style="margin:0">The highlighted row is the current cycle, before its edge.</p>
+    </section>
+  </div>
+
+  <section class="panel scroll">
+    <h2>Timing diagram</h2>
+    <svg id="tim" role="img" aria-label="Timing diagram of shr_in, clk, Q3 to Q0 and shr_out"></svg>
+    <p class="note">A bit written on shr_in appears on Q3 after the next edge, then walks down one row per cycle: follow the diagonal.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>One position per edge</h3><p>All four flip-flops sample their D inputs at the same rising edge, so each one captures the value its neighbour held just before the edge. A bit therefore moves exactly one stage per clock, never further.</p></div>
+    <div><h3>Serial in, parallel out</h3><p>Feed a word one bit at a time into <code>shr_in</code>. After 4 edges all four bits are available at once on Q3..Q0. This is how a serial link (one wire) is turned back into a parallel word.</p></div>
+    <div><h3>Parallel out, serial out</h3><p>Keep clocking and the stored word leaves through <code>shr_out</code>, one bit per cycle. The same chain also works as a 4-cycle delay line: whatever enters at shr_in appears at shr_out four edges later.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var Q = [0, 0, 0, 0];            /* Q[i] is the output of FF(3-i): Q[0] = Q3 ... Q[3] = Q0 */
+  var IN = 0, hist = [], busy = false;
+  var W = {};                      /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, cls) { return reg(name, DD.wire(svg, pts, cls)); }
+  function dot(name, x, y, cls) { return reg(name, DD.dot(svg, x, y, cls)); }
+
+  var xs = [150, 290, 430, 570], fy = 50, fw = 80, fh = 80, dy = 90, clkY = 222, tapY = 156;
+  el('rect', { x: 10, y: 10, width: 720, height: 228, rx: 6, 'class': 'frame' });
+  DD.text(svg, 22, 28, 'shift direction →', 'lbl small', 'start');
+  function el(t, a) { return DD.el(t, a, svg); }
+
+  /* ---- clock: one line along the bottom, a drop to each flip-flop ---- */
+  wire('clk', [[76, clkY], [xs[3] - 20, clkY]], 'ctrl');
+  DD.text(svg, 70, clkY + 4, 'clk', 'lbl', 'end');
+  var edge = el('path', { d: 'M76,' + clkY + 'H' + (xs[3] - 20), 'class': 'edge' });
+
+  /* ---- data path ---- */
+  wire('in', [[100, dy], [xs[0], dy]]);
+  var segStart = [100], segEnd = [xs[0]];
+  var ffs = [], qT = [], leds = [];
+  xs.forEach(function (x, i) {
+    var name = 'q' + i, n = 3 - i;
+    ffs.push(DD.block(svg, x, fy, fw, fh, { clk: 60 }));
+    DD.text(svg, x + fw / 2, fy + 17, 'FF' + n, 'lbl name');
+    DD.text(svg, x + 7, dy + 4, 'D', 'lbl small', 'start');
+    DD.text(svg, x + fw - 7, dy + 4, 'Q', 'lbl small', 'end');
+    qT.push(DD.text(svg, x + fw / 2, fy + 70, '0', 'lbl big'));
+    /* clock drop */
+    var cx = x - 20;
+    wire('clk', [[cx, clkY], [cx, fy + 60], [x, fy + 60]], 'ctrl');
+    if (i < 3) dot('clk', cx, clkY, 'ctrl');
+    /* Q -> next D (or shr_out) */
+    var x2 = i < 3 ? xs[i + 1] : 691;
+    wire(name, [[x + fw, dy], [x2, dy]]);
+    segStart.push(x + fw); segEnd.push(x2);
+    /* parallel output tap */
+    var tx = x + fw + 16;
+    wire(name, [[tx, dy], [tx, tapY]]); dot(name, tx, dy);
+    leds.push(DD.led(svg, tx, tapY + 9, 9));
+    DD.text(svg, tx, tapY + 36, 'Q' + n, 'lbl');
+  });
+  var outLed = DD.led(svg, 700, dy, 9);
+  DD.text(svg, 700, dy + 28, 'shr_out', 'lbl');
+
+  /* travelling chips, one per wire segment, drawn above the wires */
+  var chips = segStart.map(function (sx, i) {
+    var g = el('g', { 'class': 'chip' });
+    g.style.setProperty('--dx', (segEnd[i] - sx - 4) + 'px');
+    DD.el('circle', { cx: sx, cy: dy, r: 9 }, g);
+    var t = DD.text(g, sx, dy + 4, '0', 'lbl');
+    return { g: g, t: t };
+  });
+
+  var pIn = DD.pin(svg, 100, dy, 'shr_in', { onToggle: function (v) { if (busy) return; IN = v; render(); } });
+
+  /* ---- HTML controls ---- */
+  var setIn = DD.bitButton(document.getElementById('bin'), function () { return IN; }, function (v) { if (busy) return; IN = v; render(); });
+  var tt = document.getElementById('tt'), tbody = tt.querySelector('tbody');
+  var tim = new DD.Timing(document.getElementById('tim'));
+
+  function pulseClock() {
+    if (busy) return Promise.resolve();
+    busy = true;
+    var vals = [IN].concat(Q);
+    DD.setHi(W.clk, 1);
+    DD.restart(edge, 'flash-once');
+    chips.forEach(function (c, i) {
+      c.t.textContent = vals[i];
+      c.g.classList.toggle('one', !!vals[i]);
+      DD.restart(c.g, 'travel');
+    });
+    return new Promise(function (res) {
+      setTimeout(function () {
+        hist.push({ in: IN, q: Q.slice() });
+        Q = [IN, Q[0], Q[1], Q[2]];
+        chips.forEach(function (c) { c.g.classList.remove('travel'); });
+        busy = false; render(); res();
+      }, 600);
+    });
+  }
+
+  function render() {
+    var v = { in: IN, clk: busy ? 1 : 0 };
+    for (var i = 0; i < 4; i++) {
+      v['q' + i] = Q[i];
+      DD.setVal(qT[i], Q[i]);
+      leds[i].set(Q[i]);
+    }
+    for (var n in W) DD.setHi(W[n], v[n]);
+    outLed.set(Q[3]);
+    pIn.set(IN); setIn(IN);
+    document.getElementById('qw').textContent = Q.join('');
+    document.getElementById('out').textContent = Q[3];
+    document.getElementById('fn').textContent = 'Next edge: Q = ' + [IN].concat(Q.slice(0, 3)).join('') + ', out = ' + Q[3];
+
+    /* state table: one row per cycle, newest last, current row highlighted */
+    var all = hist.concat([{ in: IN, q: Q }]), first = Math.max(0, all.length - 6), html = '';
+    for (var c = first; c < all.length; c++) {
+      var r = all[c];
+      html += '<tr data-k="' + c + '"><td>' + c + '</td><td class="' + (r.in ? 'one' : 'zero') + '">' + r.in +
+        '</td><td class="sep">' + r.q.join('') + '</td><td class="sep ' + (r.q[3] ? 'one' : 'zero') + '">' + r.q[3] + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+    DD.markRow(tt, all.length - 1);
+
+    /* timing diagram */
+    var N = all.length, rows = [
+      { label: 'shr_in', kind: 'bit', values: DD.Timing.full(all.map(function (r) { return r.in; })) },
+      { label: 'clk', kind: 'clk' }
+    ];
+    for (i = 0; i < 4; i++) (function (i) {
+      rows.push({ label: 'Q' + (3 - i), kind: 'bit', values: DD.Timing.registered(all.map(function (r) { return r.q[i]; }), N) });
+    })(i);
+    rows.push({ label: 'shr_out', kind: 'bit', values: DD.Timing.registered(all.map(function (r) { return r.q[3]; }), N) });
+    tim.render({ rows: rows, cycles: N, edges: hist.length, pending: true, x0: 70 });
+    /* empty grid columns up to 10 cycles, so the diagram has room to grow into */
+    var ts = tim.svg, H = +ts.getAttribute('height');
+    for (c = N + 1; c <= 10; c++) DD.el('line', { x1: 70 + c * 60, y1: 6, x2: 70 + c * 60, y2: H - 14, 'class': 't-grid' }, ts);
+  }
+
+  document.getElementById('clk').addEventListener('click', function () { pulseClock(); });
+  document.getElementById('reset').addEventListener('click', function () { if (busy) return; Q = [0, 0, 0, 0]; IN = 0; hist = []; render(); });
+  var playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', async function () {
+    if (busy) return;
+    var w = document.getElementById('wordin').value.replace(/[^01]/g, '');
+    if (!w) return;
+    playBtn.disabled = true;
+    for (var k = w.length - 1; k >= 0; k--) {      /* LSB first */
+      IN = +w[k]; render();
+      await DD.sleep(500); await pulseClock(); await DD.sleep(250);
+    }
+    IN = 0; render();
+    playBtn.disabled = false;
+  });
+  render();
+})();
+</script>
+</body>
+</html>

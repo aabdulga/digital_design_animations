@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Load/Clear Register</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+  /* on phones keep the schematic legible and let its panel scroll sideways */
+  #sch { min-width: 600px; }
+  /* the mux input currently passed to y */
+  .sch .tap { fill: transparent; transition: fill .2s; }
+  .sch .tap.sel { fill: var(--ctrl-soft); }
+  /* the bit travelling from each mux into its flip-flop on the clock edge */
+  .sch .pulse.travel { animation: reg-travel .55s linear forwards; }
+  @keyframes reg-travel { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 1; transform: translateY(var(--dy)); } }
+  @media (prefers-reduced-motion: reduce) { .sch .pulse.travel { animation-duration: .01s; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#register">← All components</a>
+    <p class="kicker">Sequential</p>
+    <h1>Load/Clear Register</h1>
+    <p>A 3-bit multi-function register. Set <code>clr</code>, <code>ld</code> and the data bits, then pulse the clock to watch each 4×1 mux pick an input and the flip-flops capture it on the rising edge. The timing diagram at the bottom records every cycle.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>3-bit multi-function register</h2>
+      <svg id="sch" class="sch" viewBox="0 6 744 434" width="744" height="434" role="img"
+           aria-label="Three 4x1 muxes feeding three D flip-flops. Each mux has select s1 = clr and s0 = ld; its inputs are q (maintain), d (load), 0 (clear) and q (maintain). A common clock drives all three flip-flops."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span><span><i class="ctrl"></i>clr / ld / clk at 1</span>
+        <span>Click any input square to flip it; click clk to pulse.</span>
+      </div>
+      <p class="note">Mux select: <code>s1 = clr</code>, <code>s0 = ld</code>. Inputs: <code>i0 = q</code> (maintain), <code>i1 = d</code> (load), <code>i2 = 0</code> (clear), <code>i3 = q</code> (maintain). The shaded input is the one each mux passes to <code>y</code>.</p>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Controls</h2>
+      <div class="readout"><b id="qw">000</b><span id="qd">q2 q1 q0 = 0</span></div>
+      <div class="row"><span class="lab">D</span>
+        <button class="bit" id="d2"><small>d2</small><span class="v">1</span></button>
+        <button class="bit" id="d1"><small>d1</small><span class="v">1</span></button>
+        <button class="bit" id="d0"><small>d0</small><span class="v">0</span></button>
+        <span class="lab" id="dval" style="font-family:var(--mono)">= 6</span>
+      </div>
+      <div class="row">
+        <button class="sw" id="clr"><span class="dot"></span><code>clr</code> <span class="st">0</span></button>
+        <button class="sw" id="ld"><span class="dot"></span><code>ld</code> <span class="st">1</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="clk">Pulse clock ⏵</button>
+        <button class="btn" id="play">Play example sequence</button>
+        <button class="btn" id="reset">Reset</button>
+      </div>
+      <h2 style="margin-top:6px">Function table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>clr</th><th>ld</th><th class="sep">Register function</th></tr></thead>
+        <tbody>
+          <tr class="pick" data-k="00"><td>0</td><td>0</td><td class="sep">Maintain (i0)</td></tr>
+          <tr class="pick" data-k="01"><td>0</td><td>1</td><td class="sep">Load (i1)</td></tr>
+          <tr class="pick" data-k="10"><td>1</td><td>0</td><td class="sep">Clear (i2)</td></tr>
+          <tr class="pick" data-k="11"><td>1</td><td>1</td><td class="sep">Maintain (i3)</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:0">Click a row to set clr and ld. The example sequence applies D = 6, 7, 5, 2, 4 with a different clr/ld pair at each edge.</p>
+    </section>
+  </div>
+
+  <section class="panel scroll">
+    <h2>Timing diagram</h2>
+    <svg id="tim" role="img" aria-label="Timing diagram of D, clr, ld, clk and Q"></svg>
+    <p class="note">Each column is one clock cycle. Q changes only on the rising edge, according to the clr/ld values at that moment.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>One mux per bit</h3><p>Every flip-flop loads on every clock edge. What it loads is chosen by its 4×1 mux: its own q (so it keeps its value), the new data bit d, or a constant 0. The same clr/ld pair drives all three muxes, so the bits always act together.</p></div>
+    <div><h3>Clear is synchronous</h3><p>Setting <code>clr</code> does nothing on its own. The register only becomes 0 at the next rising edge, when the flip-flops capture the 0 on input i2. Between edges Q never changes, whatever clr, ld and D do.</p></div>
+    <div><h3>clr = ld = 1</h3><p>Input i3 is wired back to q, so asserting both controls maintains the value. Other designs give one control priority instead (for example clear wins); that only changes what is wired to i3.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var D = [1, 1, 0], Q = [0, 0, 0];               /* index 0 = bit 2 (left column) */
+  var clr = 0, ld = 1, hist = [], q0 = 0, busy = false;
+  function dv() { return D[0] * 4 + D[1] * 2 + D[2]; }
+  function qv() { return Q[0] * 4 + Q[1] * 2 + Q[2]; }
+  var W = {};                                     /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts, cls) { return reg(name, DD.wire(svg, pts, cls)); }
+  function dot(name, x, y, cls) { return reg(name, DD.dot(svg, x, y, cls)); }
+
+  var cols = [190, 410, 630];
+  var Y = { clr: 24, ld: 56, d: 96, fb: 128, mux: 164, ff: 268, qj: 362, led: 388, clk: 424 };
+  var MH = 64, FH = 72, sel1 = Y.mux + 22, sel0 = Y.mux + 44, clkIn = Y.ff + 52;
+  DD.el('rect', { x: 78, y: 116, width: 656, height: 292, rx: 6, 'class': 'frame' }, svg);
+
+  /* ---- control buses: clr and ld along the top, clk along the bottom ---- */
+  wire('clr', [[56, Y.clr], [cols[2] - 88, Y.clr]], 'ctrl');
+  wire('ld', [[56, Y.ld], [cols[2] - 100, Y.ld]], 'ctrl');
+  wire('clk', [[56, Y.clk], [cols[2] - 72, Y.clk]], 'ctrl');
+  var edge = DD.el('path', { d: 'M56,' + Y.clk + 'H' + (cols[2] - 72), 'class': 'edge' }, svg);
+
+  var parts = [];
+  cols.forEach(function (cx, i) {
+    var b = 2 - i, p = {};
+    /* select drops into the left side of the mux (s1 above s0, so they never cross) */
+    wire('clr', [[cx - 88, Y.clr], [cx - 88, sel1], [cx - 75, sel1]], 'ctrl');
+    wire('ld', [[cx - 100, Y.ld], [cx - 100, sel0], [cx - 75, sel0]], 'ctrl');
+    wire('clk', [[cx - 72, Y.clk], [cx - 72, clkIn], [cx - 55, clkIn]], 'ctrl');
+    if (i < 2) { dot('clr', cx - 88, Y.clr, 'ctrl'); dot('ld', cx - 100, Y.ld, 'ctrl'); dot('clk', cx - 72, Y.clk, 'ctrl'); }
+
+    /* data in (i1), constant 0 (i2) */
+    wire('d' + i, [[cx + 15, Y.d + 12], [cx + 15, Y.mux]]);
+    DD.wire(svg, [[cx - 15, Y.mux - 14], [cx - 15, Y.mux]]);
+    DD.text(svg, cx - 15, Y.mux - 18, '0', 'lbl small v0');
+
+    /* q feeds back to i0 and i3 */
+    wire('q' + i, [[cx, Y.ff + FH], [cx, Y.led - 10]]);
+    wire('q' + i, [[cx, Y.qj], [cx + 90, Y.qj], [cx + 90, Y.fb], [cx - 45, Y.fb], [cx - 45, Y.mux]]);
+    wire('q' + i, [[cx + 45, Y.fb], [cx + 45, Y.mux]]);
+    dot('q' + i, cx, Y.qj); dot('q' + i, cx + 45, Y.fb);
+
+    /* the 4x1 mux */
+    DD.block(svg, cx - 75, Y.mux, 150, MH, { title: '4×1' });
+    p.taps = {};
+    [['i3', cx - 45], ['i2', cx - 15], ['i1', cx + 15], ['i0', cx + 45]].forEach(function (t) {
+      p.taps[t[0]] = DD.el('rect', { x: t[1] - 11, y: Y.mux + 3, width: 22, height: 15, rx: 3, 'class': 'tap' }, svg);
+      DD.text(svg, t[1], Y.mux + 14, t[0], 'lbl small');
+    });
+    DD.text(svg, cx - 71, sel1 + 4, 's1', 'lbl small', 'start');
+    DD.text(svg, cx - 71, sel0 + 4, 's0', 'lbl small', 'start');
+    DD.text(svg, cx, Y.mux + MH - 6, 'y', 'lbl small');
+
+    /* mux y -> flip-flop D */
+    wire('y' + i, [[cx, Y.mux + MH], [cx, Y.ff]]);
+    p.yval = DD.text(svg, cx + 10, Y.mux + MH + 25, '0', 'lbl val', 'start');
+    p.pulse = DD.el('circle', { cx: cx, cy: Y.mux + MH + 6, r: 6, 'class': 'pulse' }, svg);
+    p.pulse.style.setProperty('--dy', (Y.ff - Y.mux - MH - 12) + 'px');
+
+    /* D flip-flop */
+    p.ff = DD.block(svg, cx - 55, Y.ff, 110, FH, { title: 'D FF', clk: 52 });
+    DD.text(svg, cx, Y.ff + 14, 'D', 'lbl small');
+    DD.text(svg, cx, Y.ff + FH - 5, 'Q', 'lbl small');
+    p.q = DD.text(svg, cx + 40, Y.ff + 41, '0', 'lbl val');
+
+    p.led = DD.led(svg, cx, Y.led, 10, 'q' + b);
+    p.pin = DD.pin(svg, cx + 27, Y.d, 'd' + b, { onToggle: function (v) { if (busy) return; D[i] = v; render(); } });
+    parts.push(p);
+  });
+
+  var pClr = DD.pin(svg, 56, Y.clr, 'clr', { ctrl: 1, onToggle: function (v) { if (busy) return; clr = v; render(); } });
+  var pLd = DD.pin(svg, 56, Y.ld, 'ld', { ctrl: 1, onToggle: function (v) { if (busy) return; ld = v; render(); } });
+  var pClk = DD.pin(svg, 56, Y.clk, 'clk', { ctrl: 1, onToggle: function () { pulseClock(); } });
+
+  /* ---- HTML controls ---- */
+  var setD = [0, 1, 2].map(function (i) {
+    return DD.bitButton(document.getElementById('d' + (2 - i)), function () { return D[i]; }, function (v) { if (busy) return; D[i] = v; render(); });
+  });
+  var setClr = DD.swButton(document.getElementById('clr'), function () { return clr; }, function (v) { if (busy) return; clr = v; render(); });
+  var setLd = DD.swButton(document.getElementById('ld'), function () { return ld; }, function (v) { if (busy) return; ld = v; render(); });
+  var tt = document.getElementById('tt');
+  tt.querySelectorAll('tbody tr').forEach(function (tr) {
+    tr.addEventListener('click', function () { if (busy) return; clr = +tr.dataset.k[0]; ld = +tr.dataset.k[1]; render(); });
+  });
+  var tim = new DD.Timing(document.getElementById('tim'));
+
+  var fnName = { '00': 'Maintain', '01': 'Load', '10': 'Clear', '11': 'Maintain' };
+  var tapOf = { '00': 'i0', '01': 'i1', '10': 'i2', '11': 'i3' };
+  function sel() { return '' + clr + ld; }
+  function muxOut(i) { var k = sel(); if (k === '01') return D[i]; if (k === '10') return 0; return Q[i]; }
+
+  function render() {
+    var k = sel(), v = { clr: clr, ld: ld, clk: busy ? 1 : 0 };
+    parts.forEach(function (p, i) {
+      v['d' + i] = D[i]; v['q' + i] = Q[i]; v['y' + i] = muxOut(i);
+      for (var n in p.taps) p.taps[n].classList.toggle('sel', n === tapOf[k]);
+      DD.setVal(p.yval, v['y' + i]); DD.setVal(p.q, Q[i]);
+      p.led.set(Q[i]); p.pin.set(D[i]); setD[i](D[i]);
+    });
+    for (var n in W) DD.setHi(W[n], v[n]);
+    pClr.set(clr); pLd.set(ld); pClk.set(busy ? 1 : 0); setClr(clr); setLd(ld);
+    document.getElementById('dval').textContent = '= ' + dv();
+    document.getElementById('qw').textContent = Q.join('');
+    document.getElementById('qd').textContent = 'q2 q1 q0 = ' + qv();
+    document.getElementById('fn').textContent = 'Next edge: ' + fnName[k] + ' → Q = ' + (k === '01' ? dv() : k === '10' ? 0 : qv());
+    DD.markRow(tt, k);
+    drawTiming();
+  }
+
+  function drawTiming() {
+    var all = hist.concat([{ d: dv(), clr: clr, ld: ld }]), N = all.length;
+    var states = [q0].concat(hist.map(function (r) { return r.q; }));
+    tim.render({
+      rows: [
+        { label: 'D', kind: 'bus', values: DD.Timing.full(all.map(function (r) { return r.d; })) },
+        { label: 'clr', kind: 'bit', values: DD.Timing.full(all.map(function (r) { return r.clr; })) },
+        { label: 'ld', kind: 'bit', values: DD.Timing.full(all.map(function (r) { return r.ld; })) },
+        { label: 'clk', kind: 'clk' },
+        { label: 'Q', kind: 'bus', values: DD.Timing.registered(states, N) }
+      ],
+      cycles: Math.max(N, 8), edges: hist.length, cw: 70
+    });
+    /* keep at least 8 columns on screen, so shade the "next edge" column here rather than with pending */
+    var svgT = tim.svg, H = 16 + 5 * 36 + 18, x = 64 + (N - 1) * 70;
+    svgT.insertBefore(DD.el('rect', { x: x, y: 4, width: 70, height: H - 14, 'class': 't-now' }), svgT.firstChild);
+    DD.text(svgT, x + 35, H - 3, 'next edge', 't-small');
+  }
+
+  /* ---- clock edge: every mux output travels into its flip-flop at once ---- */
+  function pulseClock() {
+    if (busy) return Promise.resolve();
+    busy = true;
+    var next = parts.map(function (_, i) { return muxOut(i); });
+    var rec = { d: dv(), clr: clr, ld: ld, q: null };
+    render();
+    DD.restart(edge, 'flash-once');
+    parts.forEach(function (p) { p.ff.hot(1); DD.restart(p.pulse, 'travel'); });
+    return new Promise(function (res) {
+      setTimeout(function () {
+        if (!hist.length) q0 = qv();
+        Q = next; rec.q = qv(); hist.push(rec);
+        parts.forEach(function (p) { p.ff.hot(0); p.pulse.classList.remove('travel'); });
+        busy = false; render(); res();
+      }, 600);
+    });
+  }
+  document.getElementById('clk').addEventListener('click', function () { pulseClock(); });
+  document.getElementById('reset').addEventListener('click', function () {
+    if (busy) return; D = [1, 1, 0]; Q = [0, 0, 0]; clr = 0; ld = 1; hist = []; q0 = 0; render();
+  });
+
+  /* example sequence: the inputs applied before each rising edge */
+  var seq = [{ d: 6, clr: 0, ld: 1 }, { d: 7, clr: 1, ld: 0 }, { d: 5, clr: 0, ld: 1 }, { d: 2, clr: 0, ld: 0 }, { d: 4, clr: 1, ld: 1 }];
+  var playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', async function () {
+    if (busy) return;
+    playBtn.disabled = true;
+    Q = [0, 0, 0]; hist = []; q0 = 0;
+    for (var s = 0; s < seq.length; s++) {
+      D = DD.bitsOf(seq[s].d, 3); clr = seq[s].clr; ld = seq[s].ld; render();
+      await DD.sleep(900);
+      await pulseClock();
+      await DD.sleep(500);
+    }
+    playBtn.disabled = false;
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

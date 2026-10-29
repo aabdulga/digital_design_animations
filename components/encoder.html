@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4-to-2 Priority Encoder</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#encoder">← All components</a>
+    <p class="kicker">Combinational</p>
+    <h1>4-to-2 Priority Encoder</h1>
+    <p>An encoder does the reverse of a decoder: it reports which input line is active as a binary number. A priority encoder accepts any pattern of inputs and reports the highest-numbered active one; D3 wins over everything. The valid output V says whether any input is active at all.</p>
+  </header>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Gate-level circuit</h2>
+      <svg id="sch" class="sch" viewBox="0 0 535 350" width="535" height="350" role="img"
+           aria-label="Inputs D3 to D0. Y1 is the OR of D3 and D2. A NOT gate makes D2', an AND gate forms D2'·D1, and Y0 is the OR of D3 and that product. V is the 4-input OR of all inputs."></svg>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>data at 1</span>
+        <span>Click any input square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Inputs</h2>
+      <div class="row"><span class="lab">Data</span>
+        <button class="bit" id="b3"><small>D3</small><span class="v">0</span></button>
+        <button class="bit" id="b2"><small>D2</small><span class="v">0</span></button>
+        <button class="bit" id="b1"><small>D1</small><span class="v">0</span></button>
+        <button class="bit" id="b0"><small>D0</small><span class="v">0</span></button>
+      </div>
+      <div class="row"><span class="lab">Ignored</span><span class="note" id="ign" style="margin:0"></span></div>
+      <div class="fn" id="fn"></div>
+      <div class="row">
+        <button class="btn primary" id="step">Count D ⏵</button>
+        <button class="btn" id="clear">Clear</button>
+      </div>
+      <h2 style="margin-top:6px">Truth table</h2>
+      <table class="tt" id="tt">
+        <thead><tr><th>D3</th><th>D2</th><th>D1</th><th>D0</th><th class="sep">Y1</th><th>Y0</th><th class="sep">V</th></tr></thead>
+        <tbody>
+          <tr class="pick" data-k="none"><td>0</td><td>0</td><td>0</td><td>0</td><td class="sep x">X</td><td class="x">X</td><td class="sep">0</td></tr>
+          <tr class="pick" data-k="0"><td>0</td><td>0</td><td>0</td><td>1</td><td class="sep">0</td><td>0</td><td class="sep">1</td></tr>
+          <tr class="pick" data-k="1"><td>0</td><td>0</td><td>1</td><td class="x">X</td><td class="sep">0</td><td>1</td><td class="sep">1</td></tr>
+          <tr class="pick" data-k="2"><td>0</td><td>1</td><td class="x">X</td><td class="x">X</td><td class="sep">1</td><td>0</td><td class="sep">1</td></tr>
+          <tr class="pick" data-k="3"><td>1</td><td class="x">X</td><td class="x">X</td><td class="x">X</td><td class="sep">1</td><td>1</td><td class="sep">1</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:0">Click a row to load an example input. X means "either value".</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>Why priority?</h3><p>A plain encoder assumes exactly one input is 1; with two 1s its output is meaningless (D1 and D2 together would give 11). Priority makes every input pattern defined: lower inputs are ignored. Equations: <code>Y1 = D3 + D2</code>, <code>Y0 = D3 + D2'·D1</code>.</p></div>
+    <div><h3>Why V is needed</h3><p>Both "only D0 active" and "nothing active" put 00 on Y. The valid bit <code>V = D3 + D2 + D1 + D0</code> tells them apart; when V = 0, Y is a don't-care.</p></div>
+    <div><h3>Where it is used</h3><p>Interrupt controllers use one to pick the most urgent pending request. Keyboard scanners use one to turn a pressed key line into a key code, even if several keys are held.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('sch');
+  var D = [1, 0, 1, 0];                           /* D[k] is input Dk */
+  var BX = { D3: 170, D2: 195, nD2: 220, D1: 245, D0: 270 };
+  var PY = { D3: 200, D2: 244, D1: 288, D0: 332 }; /* pin rows (bottom left) */
+  var GX = 385;                                   /* column of the OR gates */
+  var W = {};                                     /* signal name -> wires/dots to colour */
+  function reg(name, e) { (W[name] = W[name] || []).push(e); return e; }
+  function wire(name, pts) { return reg(name, DD.wire(svg, pts)); }
+  function dot(name, x, y) { return reg(name, DD.dot(svg, x, y)); }
+  /* horizontal tap from a bus into a gate input; the bus's topmost tap is a corner, the rest are junctions */
+  function tap(name, pin, corner) { wire(name, [[BX[name], pin[1]], pin]); if (!corner) dot(name, BX[name], pin[1]); }
+
+  /* ---- gates ---- */
+  var orY1 = DD.gate(svg, 'or', GX, 24);
+  var orY0 = DD.gate(svg, 'or', GX, 84);
+  var and1 = DD.gate(svg, 'and', 300, 118);
+  var orV = DD.gate(svg, 'or', GX, 170, { n: 4, w: 60 });
+  var inv = DD.gate(svg, 'not', 115, PY.D2 + 8);
+
+  /* ---- buses: each runs up from its pin row to its topmost tap ---- */
+  wire('D3', [[70, PY.D3], [BX.D3, PY.D3], [BX.D3, orY1.ins[0][1]]]);
+  wire('D2', [[70, PY.D2], [BX.D2, PY.D2], [BX.D2, orY1.ins[1][1]]]);
+  wire('D2', [[100, PY.D2], [100, inv.ins[0][1]], inv.ins[0]]); dot('D2', 100, PY.D2);
+  wire('nD2', [inv.out, [BX.nD2, inv.out[1]], [BX.nD2, and1.ins[0][1]]]);
+  DD.text(svg, 183, inv.out[1] - 6, "D2'", 'lbl small');
+  wire('D1', [[70, PY.D1], [BX.D1, PY.D1], [BX.D1, and1.ins[1][1]]]);
+  wire('D0', [[70, PY.D0], [BX.D0, PY.D0], [BX.D0, orV.ins[3][1]]]);
+
+  /* ---- taps ---- */
+  tap('D3', orY1.ins[0], 1); tap('D2', orY1.ins[1], 1);
+  tap('D3', orY0.ins[0]);
+  tap('nD2', and1.ins[0], 1); tap('D1', and1.ins[1], 1);
+  var xr = 362;
+  wire('P', [and1.out, [xr, and1.out[1]], [xr, orY0.ins[1][1]], orY0.ins[1]]);
+  DD.text(svg, and1.out[0] + 2, and1.out[1] + 16, "D2'D1", 'lbl small', 'start');
+  tap('D3', orV.ins[0]); tap('D2', orV.ins[1]); tap('D1', orV.ins[2]); tap('D0', orV.ins[3], 1);
+
+  /* ---- outputs ---- */
+  var LX = 495, outs = {};
+  [['Y1', orY1], ['Y0', orY0], ['V', orV]].forEach(function (o) {
+    wire(o[0], [o[1].out, [LX - 11, o[1].out[1]]]);
+    outs[o[0]] = DD.led(svg, LX, o[1].out[1], 11, o[0]);
+  });
+
+  /* ---- input pins drawn in the schematic ---- */
+  var pins = [];
+  for (var k = 0; k < 4; k++) (function (k) {
+    pins[k] = DD.pin(svg, 70, PY['D' + k], 'D' + k, { onToggle: function (v) { D[k] = v; render(); } });
+  })(k);
+
+  /* ---- HTML controls ---- */
+  var setB = [], btns = [];
+  for (k = 0; k < 4; k++) (function (k) {
+    btns[k] = document.getElementById('b' + k);
+    setB[k] = DD.bitButton(btns[k], function () { return D[k]; }, function (v) { D[k] = v; render(); });
+  })(k);
+  function load(n) { for (var k = 0; k < 4; k++) D[k] = (n >> k) & 1; render(); }
+  var tt = document.getElementById('tt');
+  tt.querySelectorAll('tbody tr').forEach(function (tr) {
+    tr.addEventListener('click', function () { load(tr.dataset.k === 'none' ? 0 : 1 << +tr.dataset.k); });
+  });
+  function value() { return D[3] * 8 + D[2] * 4 + D[1] * 2 + D[0]; }
+  document.getElementById('step').addEventListener('click', function () { load((value() + 1) & 15); });
+  document.getElementById('clear').addEventListener('click', function () { load(0); });
+
+  function render() {
+    var v = { D3: D[3], D2: D[2], nD2: 1 - D[2], D1: D[1], D0: D[0] };
+    v.P = v.nD2 & v.D1;
+    v.Y1 = v.D3 | v.D2;
+    v.Y0 = v.D3 | v.P;
+    v.V = v.D3 | v.D2 | v.D1 | v.D0;
+    for (var n in W) DD.setHi(W[n], v[n]);
+    inv.set(v.nD2); and1.set(v.P); orY1.set(v.Y1); orY0.set(v.Y0); orV.set(v.V);
+    outs.Y1.set(v.Y1); outs.Y0.set(v.Y0); outs.V.set(v.V);
+    var win = -1;                                 /* highest active input */
+    for (var k = 3; k >= 0; k--) if (D[k]) { win = k; break; }
+    var ignored = [];
+    for (k = 0; k < 4; k++) {
+      pins[k].set(D[k]); setB[k](D[k]);
+      var ig = win >= 0 && k < win;
+      if (ig) ignored.unshift('D' + k);
+      btns[k].style.opacity = ig ? .4 : '';
+      pins[k].g.style.opacity = ig ? .4 : '';
+    }
+    document.getElementById('ign').textContent = win < 0 ? 'none (no input active)'
+      : ignored.length ? ignored.join(', ') + ' (below D' + win + ')' : 'none';
+    DD.markRow(tt, win < 0 ? 'none' : win);
+    document.getElementById('fn').textContent = win < 0
+      ? 'No input active → Y = ' + v.Y1 + v.Y0 + ' (don\'t care), V = 0'
+      : 'Highest active input: D' + win + ' → Y = ' + v.Y1 + v.Y0 + ', V = 1';
+  }
+  render();
+})();
+</script>
+</body>
+</html>

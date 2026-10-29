@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Multiplexed 7-Segment Display</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+/* Page-specific: the physical 7-segment displays (bezel and LED segments) and the zoom overlay.
+   Everything else uses the shared tokens from style.css. */
+:root {
+  --bezel: #20262a; --bezel-ink: #8e9aa1; --bezel-on: #3fd0c4;
+  --seg-off: #3a302e; --seg-on: #ff5b2e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bezel: #0a0d0f; --bezel-ink: #6d7c84; --bezel-on: #38c9bd;
+    --seg-off: #2b2220; --seg-on: #ff6b3b;
+  }
+}
+:root[data-theme="dark"] {
+  --bezel: #0a0d0f; --bezel-ink: #6d7c84; --bezel-on: #38c9bd;
+  --seg-off: #2b2220; --seg-on: #ff6b3b;
+}
+
+/* controls */
+.bar { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+.btn.sm { padding: 5px 10px; font-size: .8rem; }
+#play { min-width: 76px; }
+#spd { width: min(200px, 38vw); }
+#hz { font-family: var(--mono); font-size: .85rem; min-width: 7ch; font-variant-numeric: tabular-nums; }
+#val { width: 5em; text-align: center; letter-spacing: .2em; }
+label.chk { display: inline-flex; align-items: center; gap: 6px; font-size: .86rem; color: var(--fg); cursor: pointer; }
+label.chk input { accent-color: var(--hi); }
+
+/* readout chips */
+.read { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.chip { box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line); padding: 8px 12px; display: grid; gap: 2px; }
+.chip .k { font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.chip .v { font-family: var(--mono); font-weight: 500; font-size: 1.1rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#note { margin: 0; min-height: 3em; }
+
+/* block diagram */
+#sch { min-width: 860px; width: 100%; }
+#sch .sepl, .sch .zsep { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 5; }
+#sch .reg { cursor: pointer; }
+#sch .reg:focus { outline: none; }
+#sch .reg:focus-visible .box { stroke: var(--box); stroke-width: 3.5; }
+#sch .reg.sel .box { stroke: var(--hi); stroke-width: 2.5; }
+#sch .cell rect { fill: var(--gate); stroke: var(--line); transition: fill .2s, stroke .2s; }
+#sch .cell text { font-weight: 600; fill: var(--muted); }
+#sch .cell.on rect { fill: var(--muted); stroke: var(--muted); }
+#sch .cell.on text { fill: var(--panel); }
+#sch .reg.sel .cell.on rect { fill: var(--hi); stroke: var(--hi); }
+#sch .spin { fill: var(--gate); stroke: var(--wire); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
+#sch .spin.on { fill: var(--hi); stroke: var(--hi); }
+#sch .pl { font-size: 9px; font-weight: 600; fill: var(--muted); }
+#sch .pl.on { fill: var(--panel); }
+#sch .cg { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; }
+#sch .clkg.hi .box { stroke: var(--ctrl); stroke-width: 2.5; }
+#sch .clkg.hi .cg { stroke: var(--ctrl); }
+#sch .dig { font-size: 26px; font-weight: 600; }
+#sch .bezel { fill: var(--bezel); stroke: var(--fg); stroke-width: 1.5; }
+#sch .disp.act .bezel { stroke: var(--ctrl); stroke-width: 2.5; }
+#sch .dl { font-family: var(--sans); font-size: 10px; letter-spacing: .14em; fill: var(--bezel-ink); }
+#sch .den { font-size: 11px; fill: var(--bezel-ink); }
+#sch .disp.act .den { fill: var(--bezel-on); }
+#sch .sbase { fill: var(--seg-off); }
+#sch .slit { fill: var(--seg-on); }
+#sch .litg { filter: drop-shadow(0 0 3px var(--seg-on)); }
+
+/* live wires: a lit wire shows its signal flowing */
+#sch .wire.hi { stroke-dasharray: 7 5; animation: flow .7s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -12; } }
+.paused #sch .wire.hi { animation-play-state: paused; }
+.fast #sch .wire.hi { animation: none; stroke-dasharray: none; }
+@media (prefers-reduced-motion: reduce) { #sch .wire.hi { animation: none; stroke-dasharray: none; } }
+
+/* zoomable blocks */
+#sch .zm { cursor: zoom-in; }
+#sch .zm:focus { outline: none; }
+#sch .zm:hover .box, #sch .zm:focus-visible .box { stroke-width: 3.5; }
+.sch .hint { font-family: var(--sans); font-size: 9px; letter-spacing: .1em; fill: var(--muted); }
+#sch .zm:hover .hint, #sch .zm:focus-visible .hint { fill: var(--box); }
+
+
+/* zoom overlay: gate-level view of one block, then transistor level of one gate */
+.zoom {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: blur(2px);
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+}
+.zbox {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px;
+  width: min(100%, 880px); max-height: 100%; display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--fg) 22%, transparent);
+}
+.zhead { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.zhead h2 { margin: 0; font-size: 1.05rem; font-weight: 600; line-height: 1.25; }
+.zhead p { margin: 4px 0 0; font-size: .86rem; color: var(--muted); max-width: 68ch; }
+.zhead .row { flex: none; }
+.zbody { overflow: auto; padding: 12px 16px; }
+#zsvg { width: 100%; margin: 0 auto; }
+.sch .zb { font-weight: 600; }
+.sch .zv { font-size: 11px; font-weight: 600; }
+.sch .zrow { fill: var(--hi); opacity: 0; transition: opacity .2s; }
+.sch .zrow.hi { opacity: .1; }
+.sch .zgate { cursor: zoom-in; }
+.sch .zgate:focus { outline: none; }
+.sch .zgate:hover .gate, .sch .zgate:focus-visible .gate { stroke-width: 3.2; }
+.sch .zgate:hover .bubble, .sch .zgate:focus-visible .bubble { stroke-width: 3; }
+.sch .zch { fill: none; stroke: var(--wire); stroke-width: 4.5; stroke-linecap: round; transition: stroke .2s; }
+.sch .zch.hi { stroke: var(--hi); }
+.sch .zch.ctrl.hi { stroke: var(--ctrl); }
+.sch .zplate { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.sch .zrail { fill: none; stroke: var(--fg); stroke-width: 2; }
+.zfoot { padding: 8px 16px 12px; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); }
+.zfoot b { font-family: var(--mono); font-weight: 600; color: var(--fg); }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#seven-seg">← All components</a>
+    <p class="kicker">Systems</p>
+    <h1>Multiplexed 7-Segment Display</h1>
+    <p>Three BCD registers share one decoder. A counter picks one register at a time and lights the matching digit, fast enough that all three look steady.</p>
+  </header>
+
+  <section class="panel ctl" aria-label="Controls">
+    <h2>Controls</h2>
+    <div class="bar">
+      <div class="row">
+        <button class="btn primary" id="play" type="button">Pause</button>
+        <button class="btn" id="step" type="button">Step</button>
+        <button class="btn" id="reset" type="button">Reset</button>
+      </div>
+      <div class="row">
+        <label for="spd">Clock</label>
+        <input id="spd" type="range" min="0" max="100" step="1" value="26">
+        <output id="hz" for="spd">1.5 Hz</output>
+        <button class="btn sm" id="slow" type="button">Slow motion</button>
+        <button class="btn sm" id="real" type="button">Real speed</button>
+      </div>
+      <div class="row">
+        <label for="val">Registers</label>
+        <input id="val" type="text" inputmode="numeric" maxlength="3" value="427" autocomplete="off" spellcheck="false">
+        <label class="chk" for="glow"><input id="glow" type="checkbox" checked> Afterglow</label>
+      </div>
+    </div>
+    <div class="read" aria-label="Current signal values">
+      <div class="chip"><span class="k">Clock edges</span><span class="v" id="r_n">0</span></div>
+      <div class="chip"><span class="k">Count Q1 Q0</span><span class="v" id="r_cnt">00</span></div>
+      <div class="chip"><span class="k">Mux selects</span><span class="v" id="r_sel">REG 0</span></div>
+      <div class="chip"><span class="k">BCD from mux</span><span class="v" id="r_bcd">0111 = 7</span></div>
+      <div class="chip"><span class="k">Segments a to g</span><span class="v" id="r_seg">1110000</span></div>
+    </div>
+    <p class="note" id="note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Block diagram</h2>
+    <div class="scroll">
+      <svg id="sch" class="sch" viewBox="0 0 1000 470" width="1000" height="470" role="img"
+           aria-label="Block diagram. Three 4-bit registers feed a 3-to-1 multiplexer. The multiplexer output goes to one BCD to 7-segment decoder. Its seven outputs form a shared bus to three displays. A mod-3 counter drives the multiplexer select and a 2-to-3 decoder that enables one display at a time."></svg>
+    </div>
+    <div class="legend" style="margin-top:10px">
+      <span><i class="lo"></i>logic 0</span>
+      <span><i class="hi"></i>Data path: BCD digit and segment lines</span>
+      <span><i class="ctrl"></i>Control path: count and digit enables</span>
+      <span>Click a register to add 1. Shift-click subtracts 1.</span>
+      <span>Click the MUX or either decoder to zoom in to its gates, then click a gate to see its transistors.</span>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="panel">
+      <h2>Timing</h2>
+      <div class="scroll"><svg id="tim" role="img" aria-label="Timing diagram of the clock, counter bits, digit enables and selected register over the last twelve clock edges."></svg></div>
+      <p class="note">Each column is one clock period. The counter changes on the rising edge (dot), then the mux and decoders follow. The bottom row shows which register the mux passes.</p>
+    </section>
+    <section class="panel">
+      <h2>BCD to 7-segment truth table</h2>
+      <div class="scroll"><table class="tt" id="tt" aria-label="BCD to seven segment truth table"></table></div>
+      <p class="note">Inputs 1010 to 1111 are not valid BCD. This decoder turns every segment off for them.</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>One decoder for three digits</h3><p>The mux sends one BCD digit at a time, so a single decoder drives a segment bus shared by all three displays. That is 7 segment wires plus 3 enables, instead of 21 segment wires.</p></div>
+    <div><h3>One count controls both ends</h3><p>The same 2-bit count steers the mux and, through the 2-to-3 decoder, enables the matching display. Data and enable stay in step. Count 11 is never used: the counter returns to 00 after 10.</p></div>
+    <div><h3>Refresh rate</h3><p>Each digit is lit one third of the time, so with a clock of f each digit refreshes f/3 times a second. Drag the clock up and watch the three digits blend into one steady number.</p></div>
+  </section>
+</main>
+
+<div class="zoom" id="zoom" hidden>
+  <div class="zbox" role="dialog" aria-modal="true" aria-labelledby="ztitle">
+    <div class="zhead">
+      <div><h2 id="ztitle"></h2><p id="zsub"></p></div>
+      <div class="row"><button class="btn sm" id="zback" type="button" hidden>← Gates</button><button class="btn sm" id="zclose" type="button">Close</button></div>
+    </div>
+    <div class="zbody"><svg id="zsvg" class="sch" role="img"></svg></div>
+    <div class="zfoot" id="zfoot"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+function $(id) { return document.getElementById(id); }
+var PAT = ['1111110','0110000','1101101','1111001','0110011','1011011','1011111','1110000','1111111','1111011'];
+var NAMES = ['ones', 'tens', 'hundreds'];
+var SEGL = 'abcdefg';
+var TAU = 0.08;                     /* afterglow time constant, seconds */
+var RM = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+var S = { count: 0, n: 0, regs: [7, 2, 4], playing: !RM, v: 26, glow: true };
+var HIST0 = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0];   /* count after each of the last 12 edges (13 states) */
+var hist = HIST0.slice();
+var acc = 0, lastTick = 0, dirty = true, needs = true;
+function freq() { return 0.25 * Math.pow(2, S.v / 10); }
+
+/* ---------- block diagram ---------- */
+var svg = $('sch');
+function el(t, a, p) { return DD.el(t, a, p || svg); }
+function tx(s, x, y, cls, p, anchor) { return DD.text(p || svg, x, y, s, cls, anchor || 'start'); }
+function wire(d, ctrl, bus) { return DD.wire(svg, d, (ctrl ? 'ctrl' : '') + (bus ? ' bus' : '')); }
+
+tx('DATA PATH', 30, 20, 'lbl name');
+el('line', { x1: 20, x2: 980, y1: 322, y2: 322, 'class': 'sepl' });
+tx('CONTROL PATH', 30, 340, 'lbl name');
+
+/* wires first so blocks sit on top */
+var MI = [232.5, 165, 97.5];        /* mux input y for register 0, 1, 2 */
+var wReg = [], wEN = [], stub = [], outw = [], always = [];
+for (var r = 0; r < 3; r++) {
+  var ty = 40 + 90 * (2 - r) + 35;
+  wReg[r] = wire('M200,' + ty + 'H228V' + MI[r] + 'H250');
+}
+var wMux = wire('M310,165H400', 0, 1);
+DD.slash(svg, 352, 165, 4);
+var tBus = tx('0000', 356, 189, 'lbl small');
+for (var k = 0; k < 7; k++) { var py = 105 + 20 * k; stub[k] = wire('M520,' + py + 'H543'); outw[k] = wire('M557,' + py + 'H580'); }
+always.push(wire('M580,105V225', 0, 1));
+always.push(wire('M580,165H600V30H930', 0, 1));
+[690, 810, 930].forEach(function (cx) { always.push(wire('M' + cx + ',30V58')); });
+DD.slash(svg, 760, 30, 7);
+tx('SEGMENT BUS', 612, 20, 'lbl name');
+
+var wCnt = [wire('M260,395H280', 1, 1), wire('M280,395V291', 1, 1), wire('M280,395H400', 1, 1), DD.dot(svg, 280, 395, 'ctrl')];
+DD.slash(svg, 340, 395, 2);
+var wClk = wire('M74,395H140', 1);
+wEN[2] = wire('M500,365H690V232', 1);
+wEN[1] = wire('M500,395H810V232', 1);
+wEN[0] = wire('M500,425H930V232', 1);
+
+/* registers: click to add one, shift-click to subtract */
+var regs = [];
+for (var r2 = 0; r2 < 3; r2++) (function (r) {
+  var top = 40 + 90 * (2 - r);
+  var g = el('g', { 'class': 'reg', tabindex: 0, role: 'button' });
+  el('rect', { x: 30, y: top, width: 170, height: 70, rx: 3, 'class': 'box' }, g);
+  tx('REG ' + r + ' · ' + NAMES[r].toUpperCase(), 40, top + 17, 'lbl name', g);
+  var cells = [];
+  for (var j = 0; j < 4; j++) {
+    var cg = el('g', { 'class': 'cell' }, g), cx = 40 + 31 * j;
+    el('rect', { x: cx, y: top + 26, width: 28, height: 26, rx: 2 }, cg);
+    tx('0', cx + 14, top + 44, 'lbl', cg, 'middle');
+    cells.push(cg);
+    tx(['8', '4', '2', '1'][j], cx + 14, top + 64, 'lbl small', g, 'middle');
+  }
+  var dig = tx('0', 182, top + 46, 'dig', g, 'middle');
+  regs[r] = { g: g, cells: cells, dig: dig };
+  function bump(dv) { S.regs[r] = (S.regs[r] + dv + 10) % 10; syncInput(); needs = true; if (r === S.count) disp[r].pat = PAT[S.regs[r]]; }
+  g.addEventListener('click', function (e) { bump(e.shiftKey ? -1 : 1); });
+  g.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); bump(1); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); bump(-1); }
+  });
+})(r2);
+
+/* zoomable block groups: click or press Enter to open the gate-level view */
+function zoomGroup(kind, label) {
+  var g = el('g', { 'class': 'zm', tabindex: 0, role: 'button', 'aria-label': label + '. Press to see its gate-level circuit.' });
+  g.addEventListener('click', function () { openZoom(kind); });
+  g.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openZoom(kind); } });
+  return g;
+}
+
+/* mux */
+var gMux = zoomGroup('mux', '3-to-1 multiplexer');
+var mux = DD.muxShape(gMux, 250, 30, 60, 270, 3);
+tx('I2', 255, MI[2] + 4, 'lbl muted', gMux); tx('I1', 255, MI[1] + 4, 'lbl muted', gMux); tx('I0', 255, MI[0] + 4, 'lbl muted', gMux);
+tx('⤢ GATES', 282, 70, 'hint', gMux, 'middle');
+tx('MUX', 282, 130, 'lbl title', gMux, 'middle');
+tx('3:1 × 4b', 282, 146, 'lbl small', gMux, 'middle');
+tx('SEL', 282, 276, 'lbl small', gMux, 'middle');
+
+/* BCD to 7-segment decoder block */
+var gBcd = zoomGroup('bcd', 'BCD to 7-segment decoder');
+el('rect', { x: 400, y: 87, width: 120, height: 156, rx: 3, 'class': 'box' }, gBcd);
+tx('BCD', 460, 125, 'lbl title', gBcd, 'middle');
+tx('TO 7-SEGMENT', 460, 144, 'lbl small', gBcd, 'middle');
+tx('DECODER', 460, 160, 'lbl small', gBcd, 'middle');
+el('line', { x1: 412, x2: 508, y1: 176, y2: 176, 'class': 'sepl' }, gBcd);
+tx('IN', 414, 208, 'lbl small', gBcd);
+var tDec = tx('7', 478, 216, 'big', gBcd, 'middle');
+tx('D3–D0', 460, 237, 'lbl small', gBcd, 'middle');
+tx('⤢ GATES', 460, 101, 'hint', gBcd, 'middle');
+var pinC = [], pinT = [];
+for (var k2 = 0; k2 < 7; k2++) {
+  var py2 = 105 + 20 * k2;
+  pinC[k2] = el('circle', { cx: 550, cy: py2, r: 7.5, 'class': 'spin' });
+  pinT[k2] = tx(SEGL[k2], 550, py2 + 3.2, 'pl', svg, 'middle');
+}
+
+/* clock */
+var clk = el('g', { 'class': 'clkg' });
+el('rect', { x: 30, y: 380, width: 44, height: 30, rx: 3, 'class': 'box' }, clk);
+el('path', { d: 'M36,402V388H44V402H52V388H60V402H68', 'class': 'cg' }, clk);
+tx('CLK', 30, 373, 'lbl name');
+
+/* counter */
+DD.block(svg, 140, 350, 120, 90, { clk: 45 });
+tx('MOD-3 COUNTER', 204, 368, 'lbl small', svg, 'middle');
+var tCnt = tx('00', 204, 412, 'big', svg, 'middle');
+tx('Q1 Q0', 204, 430, 'lbl small', svg, 'middle');
+
+/* 2-to-3 decoder */
+var gDec = zoomGroup('dec', '2-to-3 digit-select decoder');
+el('rect', { x: 400, y: 340, width: 100, height: 110, rx: 3, 'class': 'box' }, gDec);
+tx('2→3', 450, 362, 'lbl title', gDec, 'middle');
+tx('DECODER', 450, 377, 'lbl small', gDec, 'middle');
+tx('EN2', 496, 369, 'lbl small', gDec, 'end');
+tx('EN1', 496, 399, 'lbl small', gDec, 'end');
+tx('EN0', 496, 429, 'lbl small', gDec, 'end');
+tx('DIGIT SELECT', 450, 444, 'lbl small', gDec, 'middle');
+tx('IN', 406, 399, 'lbl small', gDec);
+tx('⤢', 410, 422, 'hint', gDec);
+
+/* displays */
+var disp = [];
+var GW = 52, GH = 96, GT = 9;
+function segPts(k) {
+  var ht = GT / 2, g = 1.8, w = GW, h = GH;
+  function H(cy) { var x1 = ht + g, x2 = w - ht - g; return [[x1, cy], [x1 + ht, cy - ht], [x2 - ht, cy - ht], [x2, cy], [x2 - ht, cy + ht], [x1 + ht, cy + ht]]; }
+  function V(cx, y1, y2) { return [[cx, y1], [cx + ht, y1 + ht], [cx + ht, y2 - ht], [cx, y2], [cx - ht, y2 - ht], [cx - ht, y1 + ht]]; }
+  var pts;
+  switch (k) {
+    case 'a': pts = H(ht); break;
+    case 'g': pts = H(h / 2); break;
+    case 'd': pts = H(h - ht); break;
+    case 'f': pts = V(ht, ht + g, h / 2 - g); break;
+    case 'b': pts = V(w - ht, ht + g, h / 2 - g); break;
+    case 'e': pts = V(ht, h / 2 + g, h - ht - g); break;
+    default: pts = V(w - ht, h / 2 + g, h - ht - g);
+  }
+  return pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+}
+for (var i = 0; i < 3; i++) (function (i) {
+  var x0 = 640 + 120 * (2 - i);
+  var g = el('g', { 'class': 'disp' });
+  el('rect', { x: x0, y: 60, width: 100, height: 170, rx: 6, 'class': 'bezel' }, g);
+  tx(NAMES[i].toUpperCase(), x0 + 50, 78, 'dl', g, 'middle');
+  var gl = el('g', { transform: 'translate(' + (x0 + 24) + ',96)' }, g);
+  for (var s = 0; s < 7; s++) el('polygon', { points: segPts(SEGL[s]), 'class': 'sbase' }, gl);
+  var lit = el('g', { 'class': 'litg', opacity: 0 }, gl);
+  var segs = [];
+  for (var s2 = 0; s2 < 7; s2++) segs.push(el('polygon', { points: segPts(SEGL[s2]), 'class': 'slit', visibility: 'hidden' }, lit));
+  var en = tx('EN = 0', x0 + 50, 216, 'den', g, 'middle');
+  disp[i] = { g: g, lit: lit, segs: segs, en: en, pat: PAT[S.regs[i]], applied: '', b: i === 0 ? 1 : (i === 1 ? 0.5 : 0.25) };
+})(i);
+
+function applyPat(d) {
+  d.segs.forEach(function (p, k) { p.setAttribute('visibility', d.pat.charAt(k) === '1' ? 'visible' : 'hidden'); });
+  d.applied = d.pat;
+}
+
+/* ---------- truth table ---------- */
+var tt = $('tt');
+(function () {
+  var h = '<thead><tr><th>Digit</th><th class="sep">D3</th><th>D2</th><th>D1</th><th>D0</th>';
+  for (var k = 0; k < 7; k++) h += '<th' + (k === 0 ? ' class="sep"' : '') + '>' + SEGL[k] + '</th>';
+  h += '</tr></thead><tbody>';
+  for (var d = 0; d < 10; d++) {
+    var b = d.toString(2).padStart(4, '0');
+    h += '<tr data-k="' + d + '"><td>' + d + '</td>';
+    for (var j = 0; j < 4; j++) h += '<td class="' + (b[j] === '1' ? 'one' : 'zero') + (j === 0 ? ' sep' : '') + '">' + b[j] + '</td>';
+    for (var k2 = 0; k2 < 7; k2++) h += '<td class="' + (PAT[d][k2] === '1' ? 'one' : 'zero') + (k2 === 0 ? ' sep' : '') + '">' + PAT[d][k2] + '</td>';
+    h += '</tr>';
+  }
+  tt.innerHTML = h + '</tbody>';
+})();
+
+/* ---------- timing diagram ---------- */
+var timing = new DD.Timing($('tim'));
+function drawTiming() {
+  var N = hist.length - 1;
+  function sig(f) { return DD.Timing.registered(hist.map(f), N); }
+  timing.render({
+    cycles: N, edges: N, x0: 48, cw: 35, rowH: 30, minWidth: 1,
+    rows: [
+      { label: 'CLK', kind: 'clk' },
+      { label: 'Q1', kind: 'bit', values: sig(function (c) { return (c >> 1) & 1; }) },
+      { label: 'Q0', kind: 'bit', values: sig(function (c) { return c & 1; }) },
+      { label: 'EN2', kind: 'bit', values: sig(function (c) { return +(c === 2); }) },
+      { label: 'EN1', kind: 'bit', values: sig(function (c) { return +(c === 1); }) },
+      { label: 'EN0', kind: 'bit', values: sig(function (c) { return +(c === 0); }) },
+      { label: 'MUX', kind: 'bus', values: [null].concat(sig(function (c) { return 'R' + c; }).slice(1)) }
+    ]
+  });
+}
+
+/* ---------- gate-level zoom views ---------- */
+var zsvg = $('zsvg'), zoomEl = $('zoom'), zoomKind = null, zoomLast = null, zoomGate = null;
+var zsig = {};             /* signal name -> [elements] toggled with class "hi" */
+var zval = [];             /* text elements showing a signal's 0/1 */
+var L = null;              /* drawing layers: bg, wires, gates, top */
+var ZC = false;            /* transistor view of a control-path gate: draw its wires as control */
+function tag(e, sig) { (zsig[sig] = zsig[sig] || []).push(e); return e; }
+function zt(s, x, y, cls, anchor) { return DD.text(L.t, x, y, s, cls || 'lbl', anchor || 'start'); }
+function zw(d, sig, ctrl) { return tag(DD.wire(L.w, d, (ctrl || ZC) ? 'ctrl' : ''), sig); }
+function zdot(x, y, sig, ctrl) { var c = DD.dot(L.t, x, y, (ctrl || ZC) ? 'ctrl' : ''); c.setAttribute('r', 3); return tag(c, sig); }
+function zval1(sig, x, y, anchor, pre) { zval.push({ sig: sig, el: zt('0', x, y, 'lbl zv', anchor), pre: pre || '' }); }
+function zline(x1, y1, x2, y2) { DD.el('line', { x1: x1, y1: y1, x2: x2, y2: y2, 'class': 'zsep' }, L.bg); }
+function setVB(w, h) {
+  zsvg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  zsvg.style.minWidth = Math.round(w * 0.75) + 'px';     /* scroll on phones instead of shrinking the text */
+  zsvg.style.maxWidth = Math.round(w * 1.35) + 'px';     /* do not blow small circuits up */
+}
+/* a gate drawn with DD.gate inside a clickable group. rot = [x, y]: draw it pointing down with its input at (x - h/2, y). */
+function zgate(type, x, y, w, h, n, sig, ctrl, rot) {
+  var g = DD.el('g', { 'class': 'zgate' }, L.g), p = g;
+  if (rot) p = DD.el('g', { transform: 'translate(' + rot[0] + ',' + rot[1] + ') rotate(90)' }, g);
+  var G = DD.gate(p, type, rot ? 0 : x, rot ? 0 : y, { n: n, w: w, h: h, cls: ctrl ? 'ctrl' : '' });
+  tag(G.body, sig); if (G.bubble) tag(G.bubble, sig);
+  G.z = g; G.ctrl = !!ctrl;
+  return G;
+}
+/* make a gate clickable: zooms to its transistor-level circuit */
+function gc(G, type, ins, out) {
+  var d = { type: type, ins: ins, out: out, ctrl: G.ctrl }, g = G.z;
+  g.setAttribute('tabindex', 0); g.setAttribute('role', 'button');
+  g.setAttribute('aria-label', (type === 'not' ? 'NOT' : type.toUpperCase() + ' gate, ' + ins.length + ' inputs') + ', output ' + sname(out) + '. Press to see its transistors.');
+  g.addEventListener('click', function (e) { e.stopPropagation(); openXistor(d); });
+  g.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openXistor(d); } });
+  return G;
+}
+function sname(sig) {
+  var m;
+  if (sig === 'nQ1') return 'Q̄1'; if (sig === 'nQ0') return 'Q̄0';
+  if ((m = /^nD(\d)$/.exec(sig))) return 'D̄' + m[1];
+  if ((m = /^I(\d)(\d)$/.exec(sig))) return 'I' + m[1] + '[' + m[2] + ']';
+  if ((m = /^A(\d)(\d)$/.exec(sig))) return 'I' + m[1] + '[' + m[2] + ']·S' + m[1];
+  if ((m = /^M(\d)$/.exec(sig))) return 'm' + m[1];
+  if ((m = /^G(\d)$/.exec(sig))) return 'seg ' + SEGL[+m[1]];
+  if ((m = /^Y(\d)$/.exec(sig))) return 'Y[' + m[1] + ']';
+  return sig;
+}
+
+function signals() {
+  var c = S.count, Q1 = (c >> 1) & 1, Q0 = c & 1, s = { Q1: Q1, Q0: Q0, nQ1: 1 - Q1, nQ0: 1 - Q0, S0: +(c === 0), S1: +(c === 1), S2: +(c === 2) }, r, b, m, k;
+  for (b = 0; b < 4; b++) { var y = 0; for (r = 0; r < 3; r++) { s['I' + r + b] = (S.regs[r] >> b) & 1; s['A' + r + b] = s['I' + r + b] & s['S' + r]; y |= s['A' + r + b]; } s['Y' + b] = y; }
+  var d = S.regs[c];
+  for (b = 0; b < 4; b++) { s['D' + b] = (d >> b) & 1; s['nD' + b] = 1 - s['D' + b]; }
+  for (m = 0; m < 10; m++) s['M' + m] = +(m === d);
+  for (k = 0; k < 7; k++) s['G' + k] = +(PAT[d].charAt(k) === '1');
+  s.EN0 = s.S0; s.EN1 = s.S1; s.EN2 = s.S2;
+  return s;
+}
+
+var ZOOM = {
+  mux: {
+    title: 'MUX — 3:1 × 4 bits, gate level',
+    sub: 'Each output bit Y[b] is an AND–OR network: Y[b] = I2[b]·S2 + I1[b]·S1 + I0[b]·S0. The three one-hot select lines S2 S1 S0 are decoded from the count Q1 Q0 by the small circuit at the bottom. 12 AND + 4 OR gates, plus 2 NOT + 3 AND for the select decode.',
+    aria: 'Gate-level multiplexer: four identical bit slices of three AND gates feeding one OR gate, with select lines decoded from Q1 and Q0.',
+    build: function () {
+      setVB(620, 600);
+      var SX = [290, 270, 250], b, r, i;        /* vertical select buses: S0, S1, S2 */
+      zt('SELECT DECODE', 320, 480, 'lbl name');
+      zt('BIT SLICES', 30, 22, 'lbl name');
+      /* select decode at bottom: Q1, Q0 come in from the left */
+      zt('Q1', 30, 497, 'lbl zb'); zt('Q0', 30, 565, 'lbl zb');
+      zw('M52,492H120', 'Q1', 1); zw('M52,560H120', 'Q0', 1);
+      zdot(80, 492, 'Q1', 1); zdot(100, 560, 'Q0', 1);
+      gc(zgate('not', 120, 483, 30, 18, 1, 'nQ1', 1), 'not', ['Q1'], 'nQ1'); zw('M150,492H176', 'nQ1', 1);
+      gc(zgate('not', 120, 551, 30, 18, 1, 'nQ0', 1), 'not', ['Q0'], 'nQ0'); 
+      /* AND gates: S2 = Q1·Q̄0, S1 = Q̄1·Q0, S0 = Q̄1·Q̄0 */
+      var a2 = gc(zgate('and', 190, 480, 36, 20, 2, 'S2', 1), 'and', ['Q1', 'nQ0'], 'S2');
+      var a1 = gc(zgate('and', 190, 524, 36, 20, 2, 'S1', 1), 'and', ['nQ1', 'Q0'], 'S1');
+      var a0 = gc(zgate('and', 190, 568, 36, 20, 2, 'S0', 1), 'and', ['nQ1', 'nQ0'], 'S0');
+      zw('M80,492V472H180V' + a2.ins[0][1] + 'H190', 'Q1', 1);       /* over the inverter, not through it */
+      zw('M150,560H184V' + a2.ins[1][1] + 'H190', 'nQ0', 1); zw('M184,560V' + a0.ins[1][1] + 'H190', 'nQ0', 1); zdot(184, 560, 'nQ0', 1);
+      zw('M176,492V' + a1.ins[0][1] + 'H190', 'nQ1', 1); zw('M176,' + a1.ins[0][1] + 'V' + a0.ins[0][1] + 'H190', 'nQ1', 1); zdot(176, a1.ins[0][1], 'nQ1', 1);
+      zw('M100,560V' + a1.ins[1][1] + 'H190', 'Q0', 1);
+      zt('S2', 232, 486, 'lbl small'); zt('S1', 232, 530, 'lbl small'); zt('S0', 232, 574, 'lbl small');
+      zw('M226,490H250V40', 'S2', 1); zw('M226,534H270V40', 'S1', 1); zw('M226,578H290V40', 'S0', 1);
+      zt('S2', 250, 34, 'lbl small', 'middle'); zt('S1', 270, 34, 'lbl small', 'middle'); zt('S0', 290, 34, 'lbl small', 'middle');
+      zline(20, 455, 600, 455);
+      /* bit slices, bit 3 at top */
+      for (i = 0; i < 4; i++) {
+        b = 3 - i; var y0 = 40 + i * 104;
+        tag(DD.el('rect', { x: 20, y: y0 - 6, width: 580, height: 100, rx: 3, 'class': 'zrow' }, L.bg), 'Y' + b);
+        zt('bit ' + b, 30, y0 + 54, 'lbl small');
+        var or = gc(zgate('or', 440, y0, 48, 88, 3, 'Y' + b), 'or', ['A2' + b, 'A1' + b, 'A0' + b], 'Y' + b);
+        for (r = 2; r >= 0; r--) {
+          var gy = y0 + (2 - r) * 32, ir = 'I' + r + b, a = 'A' + r + b, sx = SX[r];
+          var G = gc(zgate('and', 350, gy, 40, 24, 2, a), 'and', [ir, 'S' + r], a);
+          zt('I' + r + '[' + b + ']', 324, G.ins[0][1] + 3, 'lbl small', 'end');
+          zw('M328,' + G.ins[0][1] + 'H350', ir);
+          zw('M' + sx + ',' + G.ins[1][1] + 'H350', 'S' + r, 1); zdot(sx, G.ins[1][1], 'S' + r, 1);
+          var oi = or.ins[2 - r];
+          zw('M390,' + (gy + 12) + 'H412V' + oi[1] + 'H' + oi[0], a);
+        }
+        zw('M488,' + (y0 + 44) + 'H530', 'Y' + b);
+        zt('Y[' + b + '] =', 536, y0 + 48, 'lbl small'); zval1('Y' + b, 592, y0 + 48, 'end');
+      }
+      zt('MUX OUT', 540, 22, 'lbl name');
+    },
+    foot: function (s) { return 'Count <b>' + s.Q1 + s.Q0 + '</b> → select <b>S2 S1 S0 = ' + s.S2 + s.S1 + s.S0 + '</b> → Y = <b>' + s.Y3 + s.Y2 + s.Y1 + s.Y0 + '</b> (register ' + S.count + ')'; }
+  },
+  dec: {
+    title: '2→3 Decoder — digit select, gate level',
+    sub: 'Two inverters make Q̄1 and Q̄0; three 2-input AND gates each detect one count: EN0 = Q̄1·Q̄0, EN1 = Q̄1·Q0, EN2 = Q1·Q̄0. Count 11 would match none, so no digit lights; the mod-3 counter never produces it.',
+    aria: 'Gate-level 2-to-3 decoder: two NOT gates and three AND gates producing EN0, EN1 and EN2.',
+    build: function () {
+      setVB(520, 260);
+      var X = { Q1: 170, nQ1: 200, Q0: 230, nQ0: 260 };
+      /* inputs */
+      zt('Q1', 30, 34, 'lbl zb'); zw('M52,30H170', 'Q1', 1); zdot(80, 30, 'Q1', 1);
+      zw('M80,30V58H100', 'Q1', 1); gc(zgate('not', 100, 49, 30, 18, 1, 'nQ1', 1), 'not', ['Q1'], 'nQ1'); zw('M130,58H200', 'nQ1', 1);
+      zt('Q0', 30, 94, 'lbl zb'); zw('M52,90H230', 'Q0', 1); zdot(80, 90, 'Q0', 1);
+      zw('M80,90V118H100', 'Q0', 1); gc(zgate('not', 100, 109, 30, 18, 1, 'nQ0', 1), 'not', ['Q0'], 'nQ0'); zw('M130,118H260', 'nQ0', 1);
+      /* vertical buses */
+      zw('M170,30V236', 'Q1', 1); zw('M200,58V236', 'nQ1', 1); zw('M230,90V236', 'Q0', 1); zw('M260,118V236', 'nQ0', 1);
+      zt('Q1', 170, 252, 'lbl small', 'middle'); zt('Q̄1', 200, 252, 'lbl small', 'middle'); zt('Q0', 230, 252, 'lbl small', 'middle'); zt('Q̄0', 260, 252, 'lbl small', 'middle');
+      /* AND gates */
+      [['EN2', 140, 'Q1', 'nQ0'], ['EN1', 176, 'nQ1', 'Q0'], ['EN0', 212, 'nQ1', 'nQ0']].forEach(function (rw) {
+        var n = rw[0], y = rw[1], a = rw[2], c = rw[3];
+        var G = gc(zgate('and', 330, y, 44, 24, 2, n, 1), 'and', [a, c], n);
+        zw('M' + X[a] + ',' + G.ins[0][1] + 'H330', a, 1); zdot(X[a], G.ins[0][1], a, 1);
+        zw('M' + X[c] + ',' + G.ins[1][1] + 'H330', c, 1); zdot(X[c], G.ins[1][1], c, 1);
+        zw('M374,' + (y + 12) + 'H410', n, 1);
+        zt(n + ' =', 416, y + 16, 'lbl small'); zval1(n, 482, y + 16, 'end');
+      });
+      zt('DIGIT ENABLES', 416, 124, 'lbl name');
+    },
+    foot: function (s) { return 'Q1 Q0 = <b>' + s.Q1 + s.Q0 + '</b> → EN2 EN1 EN0 = <b>' + s.EN2 + s.EN1 + s.EN0 + '</b> → display ' + S.count + ' (' + NAMES[S.count] + ') is lit'; }
+  },
+  bcd: {
+    title: 'BCD → 7-segment decoder, gate level',
+    sub: 'Two-level AND–OR logic straight from the truth table. Four inverters give each input and its complement. Ten 4-input AND gates each detect one digit (its minterm). Seven OR gates, drawn as columns, combine the minterms where that segment is 1 — a dot is one OR input. Invalid codes 1010–1111 match no AND gate, so every segment stays off.',
+    aria: 'Gate-level BCD to seven-segment decoder: four NOT gates, ten four-input AND gates detecting digits 0 to 9, and seven OR gates for segments a to g.',
+    build: function () {
+      setVB(700, 560);
+      var IX = {}, m, k, b;
+      [['D3', 0], ['nD3', 1], ['D2', 2], ['nD2', 3], ['D1', 4], ['nD1', 5], ['D0', 6], ['nD0', 7]].forEach(function (o) { IX[o[0]] = 70 + 24 * o[1]; });
+      zt('INPUTS', 30, 22, 'lbl name');
+      for (b = 3; b >= 0; b--) {
+        var d = 'D' + b, n = 'nD' + b, x = IX[d], xn = IX[n];
+        zt('D' + b, x, 38, 'lbl zb', 'middle');
+        zw('M' + x + ',44V410', d);
+        zdot(x, 56, d); zw('M' + x + ',56H' + xn + 'V62', d);
+        gc(zgate('not', 0, 0, 22, 16, 1, n, 0, [xn + 8, 62]), 'not', [d], n);   /* points down: input (xn,62), output (xn,84) */
+        zw('M' + xn + ',84V410', n);
+        zt('D̄' + b, xn, 426, 'lbl small', 'middle'); zt('D' + b, x, 426, 'lbl small', 'middle');
+      }
+      /* minterm rows */
+      var GX = 270, GW2 = 46;
+      zt('DIGIT', 24, 110, 'lbl name');
+      for (m = 0; m < 10; m++) {
+        var y = 124 + 30 * m, sig = 'M' + m, lits = [];
+        tag(DD.el('rect', { x: 18, y: y - 13, width: 664, height: 26, rx: 2, 'class': 'zrow' }, L.bg), sig);
+        zt(String(m), 36, y + 5, 'lbl zb', 'middle');
+        for (b = 3; b >= 0; b--) lits.push(((m >> b) & 1) ? 'D' + b : 'nD' + b);
+        var G = gc(zgate('and', GX, y - 12, GW2, 24, 4, sig), 'and', lits, sig);
+        lits.forEach(function (lit, i) { var iy = G.ins[i][1], lx = IX[lit]; zw('M' + lx + ',' + iy + 'H' + GX, lit); zdot(lx, iy, lit); });
+        /* minterm output across the OR plane */
+        var lastk = -1; for (k = 0; k < 7; k++) if (PAT[m].charAt(k) === '1') lastk = k;
+        zw('M' + (GX + GW2) + ',' + y + 'H' + (372 + 40 * lastk), sig);
+        for (k = 0; k < 7; k++) if (PAT[m].charAt(k) === '1') zdot(372 + 40 * k, y, sig);
+      }
+      /* OR columns, pointing down */
+      zt('SEGMENT OR GATES', 372, 110, 'lbl name');
+      for (k = 0; k < 7; k++) {
+        var cx = 372 + 40 * k, g = 'G' + k, mins = [];
+        for (m = 0; m < 10; m++) if (PAT[m].charAt(k) === '1') mins.push('M' + m);
+        zw('M' + cx + ',118V440.3', g);
+        gc(zgate('or', 0, 0, 34, 30, 1, g, 0, [cx + 15, 436]), 'or', mins, g);
+        zw('M' + cx + ',470V496', g);
+        zt(SEGL[k], cx, 520, 'lbl zb', 'middle');
+        zval1(g, cx, 540, 'middle');
+      }
+      zt('AND · MINTERMS', GX + GW2 / 2, 110, 'lbl name', 'middle');
+      zline(20, 100, 680, 100);
+    },
+    foot: function (s) { var d = S.regs[S.count]; return 'D3–D0 = <b>' + d.toString(2).padStart(4, '0') + '</b> → minterm <b>m' + d + '</b> → a…g = <b>' + PAT[d] + '</b>'; }
+  }
+};
+
+function zclear() {
+  zsig = {}; zval = [];
+  while (zsvg.firstChild) zsvg.removeChild(zsvg.firstChild);
+  L = { bg: DD.el('g', null, zsvg), w: DD.el('g', null, zsvg), g: DD.el('g', null, zsvg), t: DD.el('g', null, zsvg) };
+}
+function openZoom(kind) {
+  var z = ZOOM[kind], wasOpen = !zoomEl.hidden; zoomKind = kind; zoomGate = null; ZC = false;
+  zclear();
+  $('ztitle').textContent = z.title; $('zsub').textContent = z.sub + ' Click any gate to see its transistors.';
+  $('zback').hidden = true;
+  zsvg.setAttribute('aria-label', z.aria);
+  z.build();
+  if (!wasOpen) zoomLast = document.activeElement;
+  zoomEl.hidden = false;
+  document.querySelector('.zbody').scrollTop = 0;
+  updateZoom(true);
+  $('zclose').focus();
+}
+
+/* ---------- transistor-level view of one gate ---------- */
+/* CMOS: AND = NAND + inverter, OR = NOR + inverter, NOT = inverter.
+   mos(): drain at (x,y), source at (x,y+40), gate lead to the left. */
+function mos(x, y, p, gsig, csig, leadTo, label, above) {
+  DD.wire(L.w, 'M' + x + ',' + y + 'V' + (y + 8) + 'M' + x + ',' + (y + 32) + 'V' + (y + 40));
+  tag(DD.el('path', { d: 'M' + x + ',' + (y + 8) + 'V' + (y + 32), 'class': 'zch' + (ZC ? ' ctrl' : '') }, L.w), csig);
+  DD.el('path', { d: 'M' + (x - 6) + ',' + (y + 10) + 'V' + (y + 30), 'class': 'zplate' }, L.g);
+  if (p) { tag(DD.el('circle', { cx: x - 10, cy: y + 20, r: 3.5, 'class': 'bubble' + (ZC ? ' ctrl' : '') }, L.g), gsig); zw('M' + (x - 14) + ',' + (y + 20) + 'H' + leadTo, gsig); }
+  else zw('M' + (x - 6) + ',' + (y + 20) + 'H' + leadTo, gsig);
+  zt(p ? 'P' : 'N', x + 9, y + 24, 'lbl small');
+  if (label !== undefined) { if (above) zval1(gsig, x - 8, y + 12, 'end', label + ' = '); else zval1(gsig, leadTo - 6, y + 24, 'end', label + ' = '); }
+}
+function openXistor(d) {
+  zoomGate = d; ZC = d.ctrl; zclear();
+  var n = d.ins.length, type = d.type, i;
+  var T = type === 'not' ? 'NOT gate' : (type === 'and' ? 'AND' : 'OR') + ' gate, ' + n + ' input' + (n > 1 ? 's' : '');
+  $('ztitle').textContent = T + ' → ' + sname(d.out) + ' — CMOS transistor level';
+  var sub;
+  if (type === 'not') sub = 'An inverter is one PMOS and one NMOS sharing a gate. A PMOS conducts when its gate is 0 and connects the output to VDD (logic 1); an NMOS conducts when its gate is 1 and connects the output to GND (logic 0). Exactly one of them is on at a time. 2 transistors.';
+  else if (type === 'and') sub = 'CMOS has no native AND: this is a ' + n + '-input NAND followed by an inverter. In the NAND, ' + n + ' PMOS transistors in parallel pull node X up to VDD whenever any input is 0; ' + n + ' NMOS transistors in series pull X down to GND only when every input is 1. The inverter turns X into the AND output. Highlighted channels are conducting. ' + (2 * n + 2) + ' transistors.';
+  else sub = 'CMOS has no native OR: this is a ' + n + '-input NOR followed by an inverter. In the NOR, ' + n + ' PMOS transistors in series pull node X up to VDD only when every input is 0; ' + n + ' NMOS transistors in parallel pull X down to GND whenever any input is 1. The inverter turns X into the OR output. Highlighted channels are conducting. ' + (2 * n + 2) + ' transistors.';
+  $('zsub').textContent = sub;
+  $('zback').hidden = false;
+  zsvg.setAttribute('aria-label', T + ' drawn as CMOS transistors with live input values.');
+  var lab = 0; for (i = 0; i < n; i++) lab = Math.max(lab, sname(d.ins[i]).length + 4);
+  var LW = lab * 7.2 + 10, sp = Math.max(76, LW + 22), gx = 40 + LW + 40, VDD = 40, Xy, GNDy, xinv, W, x, y;
+  function rail(y, x1, x2, name) { DD.el('path', { d: 'M' + x1 + ',' + y + 'H' + x2, 'class': 'zrail' }, L.w); zt(name, x1 - 6, y + 4, 'lbl zb', 'end'); }
+  function stub(d_) { DD.wire(L.w, d_); }
+  if (type === 'not') {
+    xinv = gx; Xy = 120; GNDy = 200; W = xinv + 120;
+    rail(VDD, gx - 30, gx + 40, 'VDD'); rail(GNDy, gx - 30, gx + 40, 'GND');
+    stub('M' + gx + ',' + VDD + 'V60'); mos(gx, 60, 1, d.ins[0], '_ip', gx - 22);
+    mos(gx, 140, 0, d.ins[0], '_in', gx - 22); stub('M' + gx + ',180V' + GNDy);
+    zw('M' + (gx - 22) + ',80V160', d.ins[0]); zdot(gx - 22, 120, d.ins[0]);
+    zw('M' + (gx - 62) + ',120H' + (gx - 22), d.ins[0]); zval1(d.ins[0], gx - 68, 124, 'end', sname(d.ins[0]) + ' = ');
+    zw('M' + gx + ',100V140', '_out'); zdot(gx, 120, '_out');
+    zw('M' + gx + ',120H' + (gx + 50), '_out'); zval1('_out', gx + 56, 124, 'start', sname(d.out) + ' = ');
+    setVB(Math.round(W + LW), 240);
+    return updateZoom(true);
+  }
+  if (type === 'and') {
+    Xy = 120; GNDy = 50 * n + 150; xinv = gx + sp * (n - 1) + Math.max(sp, 110); W = xinv + 130;
+    rail(VDD, gx - 30, xinv + 40, 'VDD'); rail(GNDy, gx - 30, xinv + 40, 'GND');
+    /* parallel PMOS */
+    for (i = 0; i < n; i++) { x = gx + sp * i; stub('M' + x + ',' + VDD + 'V60'); mos(x, 60, 1, d.ins[i], '_p' + i, x - 26, sname(d.ins[i]), true); zw('M' + x + ',100V' + Xy, '_x'); if (i > 0) zdot(x, Xy, '_x'); }
+    /* series NMOS */
+    for (i = 0; i < n; i++) { y = 140 + 50 * i; if (i > 0) zw('M' + gx + ',' + (y - 10) + 'V' + y, ''); mos(gx, y, 0, d.ins[i], '_n' + i, gx - 26, sname(d.ins[i])); }
+    zw('M' + gx + ',' + Xy + 'V140', '_x'); stub('M' + gx + ',' + (140 + 50 * (n - 1) + 40) + 'V' + GNDy);
+    zw('M' + gx + ',' + Xy + 'H' + (xinv - 22), '_x'); zdot(gx, Xy, '_x');
+  } else {
+    Xy = 60 + 50 * (n - 1) + 60; GNDy = Xy + 80; xinv = gx + sp * (n - 1) + Math.max(sp, 110); W = xinv + 130;
+    rail(VDD, gx - 30, xinv + 40, 'VDD'); rail(GNDy, gx - 30, xinv + 40, 'GND');
+    /* series PMOS */
+    stub('M' + gx + ',' + VDD + 'V60');
+    for (i = 0; i < n; i++) { y = 60 + 50 * i; if (i > 0) zw('M' + gx + ',' + (y - 10) + 'V' + y, ''); mos(gx, y, 1, d.ins[i], '_p' + i, gx - 26, sname(d.ins[i])); }
+    zw('M' + gx + ',' + (Xy - 20) + 'V' + Xy, '_x');
+    /* parallel NMOS */
+    for (i = 0; i < n; i++) { x = gx + sp * i; zw('M' + x + ',' + Xy + 'V' + (Xy + 20), '_x'); mos(x, Xy + 20, 0, d.ins[i], '_n' + i, x - 26, sname(d.ins[i]), true); stub('M' + x + ',' + (Xy + 60) + 'V' + GNDy); if (i > 0) zdot(x, Xy, '_x'); }
+    zw('M' + gx + ',' + Xy + 'H' + (xinv - 22), '_x'); zdot(gx, Xy, '_x');
+  }
+  zt(type === 'and' ? 'NAND' : 'NOR', gx - 30, 20, 'lbl name');
+  zval1('_x', xinv - 30, Xy - 6, 'end', 'X = ');
+  /* inverter: gates tied to X */
+  zt('INVERTER', xinv - 22, 20, 'lbl name');
+  stub('M' + xinv + ',' + VDD + 'V' + (Xy - 60)); mos(xinv, Xy - 60, 1, '_x', '_ip', xinv - 22);
+  mos(xinv, Xy + 20, 0, '_x', '_in', xinv - 22); stub('M' + xinv + ',' + (Xy + 60) + 'V' + GNDy);
+  zw('M' + (xinv - 22) + ',' + (Xy - 40) + 'V' + (Xy + 40), '_x'); zdot(xinv - 22, Xy, '_x');
+  zw('M' + xinv + ',' + (Xy - 20) + 'V' + (Xy + 20), '_out'); zdot(xinv, Xy, '_out');
+  zw('M' + xinv + ',' + Xy + 'H' + (xinv + 50), '_out'); zval1('_out', xinv + 56, Xy + 4, 'start', sname(d.out) + ' = ');
+  setVB(Math.round(W + LW), GNDy + 30);
+  updateZoom(true);
+}
+$('zback').addEventListener('click', function () { openZoom(zoomKind); });
+function closeZoom() {
+  zoomEl.hidden = true; zoomKind = null; zoomGate = null;
+  if (zoomLast && zoomLast.focus) zoomLast.focus();
+}
+function updateZoom() {
+  if (!zoomKind) return;
+  var s = signals(), n, i;
+  if (zoomGate) {
+    var d = zoomGate, ins = d.ins.map(function (k) { return s[k]; });
+    if (d.type === 'not') { s._ip = 1 - ins[0]; s._in = ins[0]; s._out = 1 - ins[0]; }
+    else {
+      var all = ins.every(function (v) { return v === 1; }), any = ins.some(function (v) { return v === 1; });
+      s._x = d.type === 'and' ? (all ? 0 : 1) : (any ? 0 : 1);
+      for (i = 0; i < ins.length; i++) { s['_p' + i] = 1 - ins[i]; s['_n' + i] = ins[i]; }
+      s._ip = 1 - s._x; s._in = s._x; s._out = 1 - s._x;
+    }
+  }
+  for (n in zsig) DD.setHi(zsig[n], s[n]);
+  zval.forEach(function (v) { DD.setVal(v.el, s[v.sig], v.pre); });
+  if (zoomGate) {
+    var g = zoomGate, parts = g.ins.map(function (k) { return sname(k) + ' = <b>' + s[k] + '</b>'; }).join(', ');
+    var how = g.type === 'not' ? '' : (g.type === 'and' ? (s._x ? 'some input is 0, a PMOS pulls X up' : 'all inputs are 1, the NMOS chain pulls X down') : (s._x ? 'all inputs are 0, the PMOS chain pulls X up' : 'an input is 1, an NMOS pulls X down'));
+    $('zfoot').innerHTML = parts + (how ? ' → ' + how + ' (X = <b>' + s._x + '</b>)' : '') + ' → ' + sname(g.out) + ' = <b>' + s._out + '</b>';
+  } else $('zfoot').innerHTML = ZOOM[zoomKind].foot(s);
+}
+$('zclose').addEventListener('click', closeZoom);
+zoomEl.addEventListener('click', function (e) { if (e.target === zoomEl) closeZoom(); });
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && zoomKind) { if (zoomGate) openZoom(zoomKind); else closeZoom(); } });
+
+/* ---------- state rendering ---------- */
+var chipN = $('r_n'), chipC = $('r_cnt'), chipS = $('r_sel'), chipB = $('r_bcd'), chipG = $('r_seg');
+DD.setHi(always, 1);                /* the segment bus always carries a lit digit */
+function renderStatic() {
+  var c = S.count, dg = S.regs[c], pat = PAT[dg], bin = DD.bin(dg, 4);
+  for (var r = 0; r < 3; r++) {
+    var v = S.regs[r];
+    regs[r].g.classList.toggle('sel', r === c);
+    for (var j = 0; j < 4; j++) {
+      var on = ((v >> (3 - j)) & 1) === 1;
+      regs[r].cells[j].classList.toggle('on', on);
+      regs[r].cells[j].querySelector('text').textContent = on ? '1' : '0';
+    }
+    regs[r].dig.textContent = v;
+    regs[r].g.setAttribute('aria-label', 'Register ' + r + ', ' + NAMES[r] + ' digit, value ' + v + '. Press to add one.');
+    DD.setHi(wReg[r], r === c && v > 0);
+  }
+  DD.setHi(wMux, dg > 0);
+  tBus.textContent = bin;
+  tDec.textContent = dg;
+  for (var k = 0; k < 7; k++) {
+    var o = pat.charAt(k) === '1';
+    DD.setHi(stub[k], o); DD.setHi(outw[k], o);
+    pinC[k].classList.toggle('on', o);
+    pinT[k].classList.toggle('on', o);
+  }
+  DD.setHi(wCnt, c !== 0);
+  for (var i = 0; i < 3; i++) {
+    DD.setHi(wEN[i], i === c);
+    disp[i].g.classList.toggle('act', i === c);
+    disp[i].en.textContent = i === c ? 'EN = 1' : 'EN = 0';
+  }
+  disp[c].pat = pat;
+  tCnt.textContent = DD.bin(c, 2);
+  chipN.textContent = S.n;
+  chipC.textContent = DD.bin(c, 2);
+  chipS.textContent = 'REG ' + c;
+  chipB.textContent = bin + ' = ' + dg;
+  chipG.textContent = pat;
+  DD.markRow(tt, dg);
+  updateZoom();
+  needs = false;
+}
+
+function renderLevels(now) {
+  for (var i = 0; i < 3; i++) {
+    var d = disp[i], b;
+    if (!S.glow) b = (i === S.count) ? 1 : 0;
+    else b = (i === S.count) ? 1 : d.b * Math.exp(-acc / TAU);
+    if (d.pat !== d.applied) applyPat(d);
+    d.lit.setAttribute('opacity', b.toFixed(3));
+  }
+  var pulse = now - lastTick < 120;
+  clk.classList.toggle('hi', pulse);
+  DD.setHi(wClk, pulse);
+}
+
+function doTick(period) {
+  var k = Math.exp(-period / TAU), i;
+  for (i = 0; i < 3; i++) if (i !== S.count) disp[i].b *= k;
+  S.count = (S.count + 1) % 3;
+  S.n++;
+  hist.push(S.count);
+  if (hist.length > 13) hist.shift();
+  var d = disp[S.count];
+  d.pat = PAT[S.regs[S.count]];
+  d.b = 1;
+  lastTick = performance.now();
+  dirty = true;
+}
+
+/* ---------- speed readout ---------- */
+function fmtHz(f) { return f < 10 ? f.toFixed(1) : String(Math.round(f)); }
+function renderSpeed() {
+  var f = freq(), per = f / 3, msg;
+  $('hz').textContent = fmtHz(f) + ' Hz';
+  document.documentElement.classList.toggle('fast', f > 6);
+  if (per < 25) msg = 'Clock ' + fmtHz(f) + ' Hz: each digit refreshes ' + fmtHz(per) + ' times a second and is lit for one third of each cycle. At this rate you see the digits flash in turn.';
+  else if (per < 50) msg = 'Clock ' + fmtHz(f) + ' Hz: each digit refreshes ' + fmtHz(per) + ' times a second. Most people still see a shimmer below about 50 refreshes per second.';
+  else msg = 'Clock ' + fmtHz(f) + ' Hz: each digit refreshes ' + fmtHz(per) + ' times a second. The eye blends the three digits into one steady number.';
+  $('note').textContent = msg;
+}
+
+/* ---------- controls ---------- */
+function setPlaying(p) {
+  S.playing = p;
+  $('play').textContent = p ? 'Pause' : 'Play';
+  document.documentElement.classList.toggle('paused', !p);
+}
+$('play').addEventListener('click', function () { setPlaying(!S.playing); });
+$('step').addEventListener('click', function () {
+  setPlaying(false);
+  doTick(1);
+  for (var i = 0; i < 3; i++) if (i !== S.count) disp[i].b = 0;
+  acc = 0; needs = true;
+});
+$('reset').addEventListener('click', function () {
+  S.count = 0; S.n = 0; acc = 0;
+  hist = HIST0.slice();
+  for (var i = 0; i < 3; i++) { disp[i].pat = PAT[S.regs[i]]; disp[i].b = i === 0 ? 1 : 0; }
+  dirty = true; needs = true;
+});
+$('spd').addEventListener('input', function () { S.v = +this.value; renderSpeed(); });
+$('slow').addEventListener('click', function () { S.v = 20; $('spd').value = 20; renderSpeed(); });
+$('real').addEventListener('click', function () { S.v = 96; $('spd').value = 96; renderSpeed(); });
+$('glow').addEventListener('change', function () { S.glow = this.checked; });
+var valIn = $('val');
+function syncInput() {
+  if (document.activeElement !== valIn) valIn.value = '' + S.regs[2] + S.regs[1] + S.regs[0];
+}
+valIn.addEventListener('input', function () {
+  var t = this.value.replace(/\D/g, '').slice(0, 3);
+  if (t !== this.value) this.value = t;
+  if (!t.length) return;
+  t = ('000' + t).slice(-3);
+  S.regs = [+t[2], +t[1], +t[0]];
+  disp[S.count].pat = PAT[S.regs[S.count]];
+  needs = true;
+});
+valIn.addEventListener('blur', function () { this.value = '' + S.regs[2] + S.regs[1] + S.regs[0]; });
+
+/* ---------- main loop ---------- */
+var last = performance.now();
+function frame(now) {
+  var dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (S.playing) {
+    var period = 1 / freq(), guard = 0;
+    acc += dt;
+    while (acc >= period && guard++ < 2000) { acc -= period; doTick(period); }
+  }
+  if (dirty || needs) { renderStatic(); if (dirty) { drawTiming(); dirty = false; } }
+  renderLevels(now);
+  requestAnimationFrame(frame);
+}
+
+setPlaying(S.playing);
+renderSpeed();
+renderStatic();
+drawTiming();
+dirty = false;
+for (var q = 0; q < 3; q++) applyPat(disp[q]);
+renderLevels(performance.now());
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
