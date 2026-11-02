@@ -16,8 +16,5 @@ window.DD_COMPONENTS = [
     { id: 'register',      title: 'Load/Clear Register',  sub: '3-bit, mux-based',              file: 'components/register.html' },
     { id: 'shift-register',title: 'Shift Register',       sub: '4-bit shift right',             file: 'components/shift-register.html' },
     { id: 'counter',       title: 'Up Counter',           sub: '4-bit with terminal count',     file: 'components/counter.html' }
-  ]},
-  { group: 'Systems', items: [
-    { id: 'seven-seg',     title: 'Multiplexed 7-Segment',sub: '3 digits, one decoder',         file: 'components/seven-seg.html' }
   ]}
 ];

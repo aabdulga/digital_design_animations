@@ -11,7 +11,6 @@ No build step and no dependencies. It works straight from the file system or fro
 | Foundations | MOS Transistors, CMOS Logic Gates |
 | Combinational | Multiplexer, Decoder, Priority Encoder, Half & Full Adder, Ripple-Carry Adder |
 | Sequential | SR Latch, Load/Clear Register, Shift Register, Up Counter |
-| Systems | Multiplexed 7-Segment Display |
 
 ## Layout
 
