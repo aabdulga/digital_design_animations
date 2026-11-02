@@ -16,5 +16,8 @@ window.DD_COMPONENTS = [
     { id: 'register',      title: 'Load/Clear Register',  sub: '3-bit, mux-based',              file: 'components/register.html' },
     { id: 'shift-register',title: 'Shift Register',       sub: '4-bit shift right',             file: 'components/shift-register.html' },
     { id: 'counter',       title: 'Up Counter',           sub: '4-bit with terminal count',     file: 'components/counter.html' }
+  ]},
+  { group: 'State Machines', items: [
+    { id: 'traffic-fsm',   title: 'Traffic Light FSM',    sub: 'Moore machine, two timers',     file: 'components/traffic-fsm.html' }
   ]}
 ];

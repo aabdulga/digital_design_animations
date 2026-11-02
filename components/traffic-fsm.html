@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Traffic Light FSM</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+  /* Lamp colours: the one exception to the token palette. Real red / amber / green when lit,
+     dim versions when off, and darker "ink" versions for wires and text on the panel. */
+  :root {
+    --lamp-r: #e3342c; --lamp-y: #f2b000; --lamp-g: #1fa456;
+    --lamp-r-off: #5b2d2a; --lamp-y-off: #5a4b22; --lamp-g-off: #24432f;
+    --lamp-r-ink: #c92a23; --lamp-y-ink: #a87600; --lamp-g-ink: #17853f;
+    --head: #2a302c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --lamp-r: #ff5b4f; --lamp-y: #ffc93d; --lamp-g: #3fdc85;
+      --lamp-r-off: #3d1f1d; --lamp-y-off: #3d3519; --lamp-g-off: #19331f;
+      --lamp-r-ink: #ff7a70; --lamp-y-ink: #ffc93d; --lamp-g-ink: #4fe08f;
+      --head: #0d100e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --lamp-r: #ff5b4f; --lamp-y: #ffc93d; --lamp-g: #3fdc85;
+    --lamp-r-off: #3d1f1d; --lamp-y-off: #3d3519; --lamp-g-off: #19331f;
+    --lamp-r-ink: #ff7a70; --lamp-y-ink: #ffc93d; --lamp-g-ink: #4fe08f;
+    --head: #0d100e;
+  }
+
+  /* street scene */
+  .scene .road { fill: var(--line); }
+  .scene .curb { stroke: var(--fg); stroke-width: 2; fill: none; }
+  .scene .lane { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 14 10; fill: none; }
+  .scene .stop { stroke: var(--fg); stroke-width: 4; }
+  .scene .zebra { fill: var(--muted); opacity: .55; }
+  .scene .faint { opacity: .4; }
+  .scene .faint rect { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+  .scene .faint .sensor { stroke-dasharray: 2 2; }
+  .scene .faint circle { fill: var(--muted); }
+  .scene .faint text { fill: var(--muted); font-size: 9px; }
+  .scene .street-name { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: .06em; fill: var(--muted); }
+  .scene .car .body { fill: var(--box); }
+  .scene .car.side .body { fill: var(--muted); }
+  .scene .car .glass { fill: var(--panel); opacity: .8; }
+
+  /* signal heads (scene and architecture) */
+  .sch .housing { fill: var(--head); }
+  .sch .lamp { stroke: none; transition: fill .2s; }
+  .sch .lamp.r { fill: var(--lamp-r-off); }
+  .sch .lamp.y { fill: var(--lamp-y-off); }
+  .sch .lamp.g { fill: var(--lamp-g-off); }
+  .sch .lamp.r.on { fill: var(--lamp-r); filter: drop-shadow(0 0 5px var(--lamp-r)); }
+  .sch .lamp.y.on { fill: var(--lamp-y); filter: drop-shadow(0 0 5px var(--lamp-y)); }
+  .sch .lamp.g.on { fill: var(--lamp-g); filter: drop-shadow(0 0 5px var(--lamp-g)); }
+
+  /* an output line at 1 takes the colour of the lamp it drives */
+  .sch .wire.lr.hi { stroke: var(--lamp-r-ink); }
+  .sch .wire.ly.hi { stroke: var(--lamp-y-ink); }
+  .sch .wire.lg.hi { stroke: var(--lamp-g-ink); }
+  .sch .oval.lr.v1 { fill: var(--lamp-r-ink); }
+  .sch .oval.ly.v1 { fill: var(--lamp-y-ink); }
+  .sch .oval.lg.v1 { fill: var(--lamp-g-ink); }
+  .timing .t-sig.lr.hi { stroke: var(--lamp-r-ink); }
+  .timing .t-sig.ly.hi { stroke: var(--lamp-y-ink); }
+  .timing .t-sig.lg.hi { stroke: var(--lamp-g-ink); }
+
+  /* timers */
+  .sch .ttrack { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .sch .ttrack.exp { stroke: var(--hi); }
+  .sch .tbar { fill: var(--box); opacity: .45; }
+
+  /* state diagram */
+  .sch .st { fill: var(--gate); stroke: var(--fg); stroke-width: 2; cursor: pointer; }
+  .sch .st.cur { fill: var(--hi-soft); stroke: var(--hi); stroke-width: 3; }
+  .sch .stg { cursor: pointer; }
+  .sch .stg:focus { outline: none; }
+  .sch .stg:focus-visible .st { stroke: var(--hi); stroke-width: 4; }
+  .sch .stname { font-family: var(--sans); font-size: 16px; font-weight: 600; pointer-events: none; }
+  .sch .stg text { pointer-events: none; }
+  .sch .ah { fill: var(--wire); transition: fill .25s; }
+  .sch .ah.hi { fill: var(--hi); }
+  .sch .mo { font-size: 12px; fill: var(--muted); }
+  .sch .mo.cur { fill: var(--hi); font-weight: 600; }
+
+  /* on phones the two wide diagrams keep a legible size and scroll sideways in their panel */
+  @media (max-width: 600px) { #arch { width: 760px; max-width: none; } #sd { width: 640px; max-width: none; } }
+  .speed .bit { min-width: 46px; }
+  .clock-line { font-family: var(--mono); font-size: .82rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#traffic-fsm">← All components</a>
+    <p class="kicker">State Machines</p>
+    <h1>Traffic Light Controller (FSM)</h1>
+    <p>A Moore finite state machine runs a simple intersection. Four states give the main street and the side street green in turn. Two timers, T30 and T5, are its only inputs, and its six outputs MR MY MG SR SY SG drive the lamps. Both streets get equal time: 30 s of green, then 5 s of yellow, so one full cycle takes 70 s.</p>
+  </header>
+
+  <section class="panel blockview">
+    <div>
+      <h2>The intersection</h2>
+      <svg id="scene" class="sch scene" viewBox="0 0 560 400" width="560" height="400" role="img"
+           aria-label="Top-down view of a main street running left to right and a side street running top to bottom. A main light and a side light control the traffic. Cars stop at the stop lines on red."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>The controller hands the green to one street at a time. When a street's green has lasted 30 s it turns yellow for 5 s, then red, and the other street gets its turn. Cars stop at the stop line on red; on yellow, cars already close to the line keep going and the rest stop.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="clock-line" id="clock"></div>
+      <div class="row">
+        <button class="btn primary" id="play">Pause ⏸</button>
+        <button class="btn" id="step">Step (1 edge)</button>
+        <button class="btn" id="reset">Reset</button>
+      </div>
+      <div class="row speed"><span class="lab">Speed</span>
+        <button class="bit on" data-sp="1" aria-pressed="true">1×</button>
+        <button class="bit" data-sp="5" aria-pressed="false">5×</button>
+        <button class="bit" data-sp="20" aria-pressed="false">20×</button>
+      </div>
+      <div class="row"><button class="btn" id="skip">Skip to timer expiry ⏭</button></div>
+      <p>The walk buttons, sensors and walk lamp (drawn faint) are not inputs of this simple controller; it ignores them.</p>
+    </div>
+  </section>
+
+  <section class="panel scroll">
+    <h2>State machine</h2>
+    <svg id="arch" class="sch" viewBox="0 0 1060 380" width="1060" height="380" role="img"
+         aria-label="Moore machine: two timers feed the next-state logic, which feeds a 2-bit state register clocked once per second. The register output feeds back to the next-state logic and drives the output logic, whose six outputs light the main and side signal heads. A state-entered detector starts the right timer."></svg>
+    <div class="legend">
+      <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>timer output at 1</span><span><i class="ctrl"></i>clk / reset / start at 1</span>
+      <span>Output lines at 1 take the colour of their lamp. Thick lines are 2-bit buses.</span>
+    </div>
+    <p class="note">The clock ticks once per simulated second. The timers count on the falling clock edge, half a second before each rising edge, so <code>T30</code> and <code>T5</code> are already settled when the state register samples the next state. The slides give no state encoding; this page uses <b>S1 = 00, S2 = 01, S3 = 10, S4 = 11</b>. That is a choice: any four distinct 2-bit codes would work, with different logic inside the boxes.</p>
+  </section>
+
+  <section class="panel scroll">
+    <h2>State transition diagram</h2>
+    <svg id="sd" class="sch" viewBox="0 0 930 320" width="930" height="320" role="img"
+         aria-label="Four states S1 to S4 in a row. S1 goes to S2 when T30 = 1, S2 to S3 when T5 = 1, S3 to S4 when T30 = 1, and S4 back to S1 when T5 = 1. Each state loops on itself while its timer output is 0. Reset enters S1."></svg>
+    <p class="note">Click a state to jump there; this restarts that state's timer. The marching loop shows the machine waiting; when the timer expires, the outgoing arc lights up and the next edge takes it.</p>
+  </section>
+
+  <div class="split">
+    <section class="panel">
+      <h2>Next-state table</h2>
+      <table class="tt" id="nst">
+        <thead><tr><th>state</th><th>Q1 Q0</th><th class="sep">T30</th><th>T5</th><th class="sep">next</th><th>Q1' Q0'</th></tr></thead>
+        <tbody>
+          <tr data-k="0-0"><td>S1</td><td>00</td><td class="sep">0</td><td class="x">X</td><td class="sep">S1</td><td>00</td></tr>
+          <tr data-k="0-1"><td>S1</td><td>00</td><td class="sep">1</td><td class="x">X</td><td class="sep">S2</td><td>01</td></tr>
+          <tr data-k="1-0"><td>S2</td><td>01</td><td class="sep x">X</td><td>0</td><td class="sep">S2</td><td>01</td></tr>
+          <tr data-k="1-1"><td>S2</td><td>01</td><td class="sep x">X</td><td>1</td><td class="sep">S3</td><td>10</td></tr>
+          <tr data-k="2-0"><td>S3</td><td>10</td><td class="sep">0</td><td class="x">X</td><td class="sep">S3</td><td>10</td></tr>
+          <tr data-k="2-1"><td>S3</td><td>10</td><td class="sep">1</td><td class="x">X</td><td class="sep">S4</td><td>11</td></tr>
+          <tr data-k="3-0"><td>S4</td><td>11</td><td class="sep x">X</td><td>0</td><td class="sep">S4</td><td>11</td></tr>
+          <tr data-k="3-1"><td>S4</td><td>11</td><td class="sep x">X</td><td>1</td><td class="sep">S1</td><td>00</td></tr>
+        </tbody>
+      </table>
+      <p class="note">X = don't care: in S1 and S3 only T30 matters, in S2 and S4 only T5.</p>
+    </section>
+    <section class="panel">
+      <h2>Output table</h2>
+      <table class="tt" id="ot">
+        <thead><tr><th>state</th><th>Q1 Q0</th><th class="sep">MR</th><th>MY</th><th>MG</th><th class="sep">SR</th><th>SY</th><th>SG</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note">Moore outputs depend on the state only. Click a row to jump to that state.</p>
+    </section>
+  </div>
+
+  <section class="panel scroll">
+    <h2>History (last 80 s)</h2>
+    <svg id="tim" role="img" aria-label="Timing strip of the state, the timer outputs T30 and T5, and the six lamp outputs over the last 80 simulated seconds"></svg>
+    <p class="note">Each grid column is 10 s. T30 and T5 rise for the last half second of their state, and the state changes at the next rising edge. The small numbers above the state row mark each change in seconds.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>A Moore machine</h3><p>The six lamp outputs depend only on the current state, never directly on the timers. That is why they are written under each state in the diagram, and why the output logic box sees only the 2-bit state. The lamps change exactly at clock edges.</p></div>
+    <div><h3>Timers as inputs</h3><p>The FSM cannot count 30 seconds by itself with only four states, so a timer does the counting and reports a single bit: expired or not. Starting the timer on state entry is what makes "stay while T30 = 0" mean "stay for 30 s": every green and every yellow is measured from the moment it began.</p></div>
+    <div><h3>A smarter controller</h3><p>The sensors and walk buttons in the intersection could become extra inputs. For example, the main street could keep its green until a car waits on the side street sensor, and a walk request could add states that light the walk lamp. Each new input adds columns to the next-state table.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var NAMES = ['S1', 'S2', 'S3', 'S4'];
+  /*            MR MY MG SR SY SG */
+  var OUT = [[0, 0, 1, 1, 0, 0],    /* S1: main green,  side red    */
+             [0, 1, 0, 1, 0, 0],    /* S2: main yellow, side red    */
+             [1, 0, 0, 0, 0, 1],    /* S3: main red,    side green  */
+             [1, 0, 0, 0, 1, 0]];   /* S4: main red,    side yellow */
+  var ONAMES = ['MR', 'MY', 'MG', 'SR', 'SY', 'SG'];
+  var LCLS = ['lr', 'ly', 'lg', 'lr', 'ly', 'lg'];
+  var USES30 = [1, 0, 1, 0];
+  var STREET = ['main street has green', 'main street has yellow', 'side street has green', 'side street has yellow'];
+  var INIT_STATE = 0;
+  function bits(s) { return DD.bin(s, 2); }
+
+  /* ================= the one shared model ================= */
+  var M = { state: 0, left30: 30, left5: 5, run30: false, run5: false, simT: 0, edges: 0 };
+  function T30() { return M.run30 && M.left30 === 0 ? 1 : 0; }
+  function T5() { return M.run5 && M.left5 === 0 ? 1 : 0; }
+  function Tcur() { return USES30[M.state] ? T30() : T5(); }
+  function nextState() {
+    var s = M.state;
+    if (s === 0) return T30() ? 1 : 0;
+    if (s === 1) return T5() ? 2 : 1;
+    if (s === 2) return T30() ? 3 : 2;
+    return T5() ? 0 : 3;
+  }
+  /* entering a state starts its timer; the other timer goes idle (output 0) */
+  function enter(s) {
+    M.state = s;
+    M.run30 = !!USES30[s]; M.left30 = 30;
+    M.run5 = !USES30[s]; M.left5 = 5;
+  }
+  function snap() {
+    return { state: M.state, next: nextState(), t30: T30(), t5: T5(), left30: M.left30, left5: M.left5, run30: M.run30, run5: M.run5 };
+  }
+  var playing = true, speed = 1, manual = false, stepTarget = null;
+  var hist = [];                       /* one record per finished half-second slot */
+  var NS = 160;                        /* slots shown in the history strip (80 s) */
+  function pushSlot() {
+    var j = Math.round(M.simT * 2) - 1;
+    if (j < 0) return;
+    var rec = { j: j, s: M.state, a: T30(), b: T5() };
+    if (hist.length && hist[hist.length - 1].j === j) hist[hist.length - 1] = rec; else hist.push(rec);
+    while (hist.length && hist[0].j < j - NS - 2) hist.shift();
+  }
+  function anim() { return !DD.reduceMotion && (manual || speed === 1); }
+
+  /* falling clock edge, mid-second: the running timer counts down one second */
+  function timerSecond() {
+    pushSlot();
+    var was = Tcur();
+    if (M.run30 && M.left30 > 0) M.left30--;
+    if (M.run5 && M.left5 > 0) M.left5--;
+    var expired = !was && Tcur();
+    syncTimers();
+    render();
+    if (expired) animateExpiry();
+  }
+  /* rising clock edge: the state register loads the next state */
+  function tick() {
+    pushSlot();
+    var prev = snap(), ns = nextState(), changed = ns !== M.state;
+    M.edges++;
+    if (changed) enter(ns);
+    onEdge(prev, changed);
+    render();
+  }
+  /* time moves forward in small steps; events fire on every half second */
+  function advance(dt) {
+    while (dt > 1e-9) {
+      var ev = (Math.floor(M.simT * 2 + 1e-6) + 1) / 2;
+      var h = Math.min(dt, ev - M.simT, 0.05);
+      carStep(h);
+      M.simT += h; dt -= h;
+      if (M.simT >= ev - 1e-9) {
+        M.simT = ev;
+        if (Math.abs(ev - Math.round(ev)) < 1e-6) tick(); else timerSecond();
+      }
+    }
+  }
+
+  /* ================= street scene ================= */
+  var sc = document.getElementById('scene');
+  function sel(t, a, p) { return DD.el(t, a, p || sc); }
+  sel('rect', { x: 0, y: 150, width: 560, height: 100, 'class': 'road' });
+  sel('rect', { x: 230, y: 0, width: 100, height: 400, 'class': 'road' });
+  /* crosswalks */
+  var i;
+  for (i = 0; i < 10; i++) {
+    sel('rect', { x: 200, y: 153 + i * 10, width: 22, height: 5, 'class': 'zebra' });
+    sel('rect', { x: 338, y: 153 + i * 10, width: 22, height: 5, 'class': 'zebra' });
+    sel('rect', { x: 233 + i * 10, y: 120, width: 5, height: 22, 'class': 'zebra' });
+    sel('rect', { x: 233 + i * 10, y: 258, width: 5, height: 22, 'class': 'zebra' });
+  }
+  /* centre lines and stop lines */
+  DD.wire(sc, [[0, 200], [192, 200]], 'lane'); DD.wire(sc, [[368, 200], [560, 200]], 'lane');
+  DD.wire(sc, [[280, 0], [280, 112]], 'lane'); DD.wire(sc, [[280, 288], [280, 400]], 'lane');
+  sc.querySelectorAll('.wire.lane').forEach(function (w) { w.setAttribute('class', 'lane'); });
+  sel('line', { x1: 194, y1: 200, x2: 194, y2: 250, 'class': 'stop' });
+  sel('line', { x1: 366, y1: 150, x2: 366, y2: 200, 'class': 'stop' });
+  sel('line', { x1: 230, y1: 114, x2: 280, y2: 114, 'class': 'stop' });
+  sel('line', { x1: 280, y1: 286, x2: 330, y2: 286, 'class': 'stop' });
+  /* curbs */
+  [[[0, 150], [230, 150], [230, 0]], [[330, 0], [330, 150], [560, 150]],
+   [[0, 250], [230, 250], [230, 400]], [[330, 400], [330, 250], [560, 250]]].forEach(function (p) {
+    sel('path', { d: 'M' + p.map(function (q) { return q.join(','); }).join('L'), 'class': 'curb' });
+  });
+  /* faint: sensors, walk buttons, walk lamp (not inputs of this controller) */
+  var faint = sel('g', { 'class': 'faint' });
+  sel('rect', { x: 238, y: 84, width: 36, height: 24, 'class': 'sensor' }, faint);
+  sel('rect', { x: 286, y: 292, width: 36, height: 24, 'class': 'sensor' }, faint);
+  DD.text(faint, 224, 106, 'sensor', '', 'end');
+  DD.text(faint, 336, 322, 'sensor', '', 'start');
+  [[216, 138], [344, 138], [216, 262], [344, 262]].forEach(function (p) {
+    sel('rect', { x: p[0] - 5, y: p[1] - 5, width: 10, height: 10 }, faint);
+    sel('circle', { cx: p[0], cy: p[1], r: 1.8 }, faint);
+  });
+  DD.text(faint, 356, 266, 'walk button', '', 'start');
+  sel('rect', { x: 430, y: 290, width: 44, height: 16 }, faint);
+  DD.text(faint, 452, 302, 'WALK', '');
+  DD.text(faint, 452, 320, 'walk lamp', '');
+  /* street names */
+  DD.text(sc, 500, 140, 'Main Street', 'street-name');
+  var sn = DD.text(sc, 0, 0, 'Side Street', 'street-name');
+  sn.setAttribute('transform', 'translate(220,48) rotate(-90)');
+  /* cars sit under the signal heads */
+  var carG = sel('g');
+  /* signal heads: [lamp elements] */
+  function head(parent, x, y, labels, side) {
+    DD.el('rect', { x: x - 14, y: y - 14, width: 28, height: 84, rx: 5, 'class': 'housing' }, parent);
+    var L = ['r', 'y', 'g'].map(function (c, k) {
+      var e = DD.el('circle', { cx: x, cy: y + k * 28, r: 10, 'class': 'lamp ' + c }, parent);
+      if (labels) DD.text(parent, side ? x + 20 : x - 20, y + k * 28 + 4, labels[k], 'lbl small', side ? 'start' : 'end');
+      return e;
+    });
+    return L;
+  }
+  var sHeadM = head(sc, 164, 282, ['Rm', 'Ym', 'Gm'], 0);
+  DD.text(sc, 164, 382, 'Main light', 'lbl');
+  var sHeadS = head(sc, 396, 38, ['Rs', 'Ys', 'Gs'], 1);
+  DD.text(sc, 396, 124, 'Side light', 'lbl');
+
+  /* ---- cars: a handful per lane, simple follow-the-leader driving ---- */
+  var seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+  var CAR = 26, GAP = 8, VMAX = 42, ACC = 28, BRK = 70, GO_DIST = 28;
+  var lanes = [
+    { st: 0, max: 3, len: 600, stop: 194, pos: function (s) { return [s, 225]; }, ang: 0, init: [150, 92] },
+    { st: 0, max: 3, len: 600, stop: 194, pos: function (s) { return [560 - s, 175]; }, ang: 180, init: [170] },
+    { st: 1, max: 2, len: 440, stop: 114, pos: function (s) { return [255, s]; }, ang: 90, init: [110, 76] },
+    { st: 1, max: 2, len: 440, stop: 114, pos: function (s) { return [305, 400 - s]; }, ang: -90, init: [108] }
+  ];
+  function lightOf(st) { var o = OUT[M.state], b = st * 3; return o[b + 2] ? 'g' : o[b + 1] ? 'y' : 'r'; }
+  function makeCar(L, s, v) {
+    var g = sel('g', { 'class': 'car' + (L.st ? ' side' : '') }, carG);
+    sel('rect', { x: -CAR, y: -8, width: CAR, height: 16, rx: 4, 'class': 'body' }, g);
+    sel('rect', { x: -11, y: -6, width: 5, height: 12, rx: 1.5, 'class': 'glass' }, g);
+    var c = { s: s, v: v, g: g, dec: -1, commit: -1 };
+    L.cars.push(c);
+    return c;
+  }
+  lanes.forEach(function (L) {
+    L.cars = []; L.yid = 0; L.last = lightOf(L.st); L.next = 2 + rnd() * 4;
+    L.init.forEach(function (s) { makeCar(L, s, lightOf(L.st) === 'g' ? VMAX : 0); });
+  });
+  function carStep(h) {
+    if (DD.reduceMotion) return;
+    lanes.forEach(function (L) {
+      var col = lightOf(L.st);
+      if (col === 'y' && L.last !== 'y') L.yid++;
+      L.last = col;
+      for (var k = 0; k < L.cars.length; k++) {          /* cars[0] is the front-most */
+        var c = L.cars[k], room = Infinity, dist = L.stop - c.s;
+        if (k > 0) room = L.cars[k - 1].s - CAR - GAP - c.s;
+        if (dist > -1) {
+          var stop = false;
+          if (col === 'y') {
+            if (c.dec !== L.yid) { c.dec = L.yid; if (dist <= GO_DIST) c.commit = L.yid; }
+            stop = c.commit !== L.yid;
+          } else if (col === 'r') stop = c.commit !== L.yid || dist > GO_DIST + 20;
+          if (stop) room = Math.min(room, dist - 3);
+        }
+        var vt = Math.min(VMAX, Math.sqrt(2 * BRK * Math.max(0, room)));
+        c.v = vt > c.v ? Math.min(vt, c.v + ACC * h) : vt;
+        c.s += c.v * h;
+      }
+      while (L.cars.length && L.cars[0].s > L.len + 40) { var gone = L.cars.shift(); carG.removeChild(gone.g); }
+      L.next -= h;
+      if (L.next <= 0 && L.cars.length < L.max) {
+        var last = L.cars[L.cars.length - 1];
+        if (!last || last.s - CAR - GAP > -40 + 10) { makeCar(L, -40, VMAX * .8); L.next = 2 + rnd() * 5; }
+      }
+    });
+  }
+  function drawCars() {
+    lanes.forEach(function (L) {
+      L.cars.forEach(function (c) {
+        var p = L.pos(c.s);
+        c.g.setAttribute('transform', 'translate(' + p[0].toFixed(1) + ',' + p[1].toFixed(1) + ') rotate(' + L.ang + ')');
+      });
+    });
+  }
+  drawCars();
+
+  /* ================= state machine architecture ================= */
+  var ar = document.getElementById('arch');
+  function aw(pts, cls) { return DD.wire(ar, pts, cls); }
+  function at(x, y, s, cls, anc) { return DD.text(ar, x, y, s, cls, anc); }
+  /* timers */
+  function timerBox(y, name, outY) {
+    var b = DD.block(ar, 40, y, 150, 80);
+    at(115, y + 22, name, 'lbl title');
+    var track = DD.el('rect', { x: 58, y: y + 34, width: 114, height: 12, rx: 3, 'class': 'ttrack' }, ar);
+    var bar = DD.el('rect', { x: 58, y: y + 34, width: 114, height: 12, rx: 3, 'class': 'tbar' }, ar);
+    var num = at(115, y + 68, '30 s', 'lbl val');
+    var w = aw([[190, outY], [270, outY]]);
+    var val = at(230, outY - 7, '', 'lbl val');
+    return { box: b, track: track, bar: bar, num: num, w: w, val: val };
+  }
+  var tm30 = timerBox(70, 'T30 timer', 110), tm5 = timerBox(210, 'T5 timer', 250);
+  /* next-state logic */
+  var nsl = DD.block(ar, 270, 70, 150, 220);
+  at(345, 140, 'NEXT-STATE', 'lbl name'); at(345, 155, 'LOGIC', 'lbl name');
+  at(277, 114, 'T30', 'lbl small', 'start'); at(277, 254, 'T5', 'lbl small', 'start');
+  at(345, 88, 'state', 'lbl small'); at(413, 174, 'next', 'lbl small', 'end');
+  var eq1 = at(345, 196, '', 'lbl small'), eq2 = at(345, 212, '', 'lbl small');
+  aw([[420, 170], [520, 170]], 'bus'); DD.slash(ar, 440, 170, 2);
+  var nextT = at(470, 190, '', 'lbl val'), nextN = at(470, 205, '', 'lbl small');
+  /* state register */
+  var regB = DD.block(ar, 520, 110, 120, 130, { clk: 105 });
+  at(580, 132, 'STATE', 'lbl name'); at(580, 146, 'REGISTER', 'lbl name');
+  at(580, 160, '2 flip-flops', 'lbl small');
+  at(527, 174, 'D', 'lbl small', 'start'); at(633, 174, 'Q', 'lbl small', 'end');
+  var regT = at(580, 200, '00', 'lbl big'), regN = at(580, 218, '(S1)', 'lbl small');
+  var clkW = aw([[470, 310], [470, 215], [520, 215]], 'ctrl');
+  var clkEdge = DD.el('path', { d: 'M470,310V215H520', 'class': 'edge' }, ar);
+  at(470, 326, 'clk', 'lbl');
+  var rstW = aw([[580, 310], [580, 240]], 'ctrl');
+  var rstEdge = DD.el('path', { d: 'M580,310V240', 'class': 'edge' }, ar);
+  at(580, 326, 'reset', 'lbl');
+  /* state bus, feedback, entry detector */
+  aw([[640, 170], [780, 170]], 'bus'); DD.slash(ar, 752, 170, 2);
+  var qT = at(648, 162, '00', 'lbl val', 'start');
+  aw('M700,170V36H345V70', 'bus'); DD.dot(ar, 700, 170);
+  var fbT = at(520, 28, '', 'lbl');
+  aw([[725, 170], [725, 280]], 'bus'); DD.dot(ar, 725, 170);
+  DD.block(ar, 660, 280, 80, 40);
+  at(700, 304, 'ENTERED?', 'lbl name');
+  var st30W = aw('M710,320V365H20V110H40', 'ctrl'), st5W = aw('M675,320V345H115V290', 'ctrl');
+  at(310, 359, 'start T30 (S1 or S3 entered)', 'lbl small');
+  at(310, 339, 'start T5 (S2 or S4 entered)', 'lbl small');
+  /* output logic, six outputs, two signal heads */
+  var olB = DD.block(ar, 780, 70, 120, 200);
+  at(840, 150, 'OUTPUT', 'lbl name'); at(840, 165, 'LOGIC', 'lbl name');
+  var olT = at(840, 192, '', 'lbl small');
+  var OY = [92, 120, 148, 192, 220, 248], oW = [], oV = [], oPath = [];
+  OY.forEach(function (y, k) {
+    oW[k] = aw([[900, y], [990, y]], LCLS[k]);
+    oV[k] = at(908, y - 5, '', 'lbl small oval ' + LCLS[k], 'start');
+    oPath[k] = 'M900,' + y + 'H990';
+  });
+  var aHeadM = head(ar, 1000, 92), aHeadS = head(ar, 1000, 192);
+  at(1000, 70, 'Main', 'lbl small'); at(1000, 284, 'Side', 'lbl small');
+  /* bead paths */
+  var P = {
+    clk: 'M470,310V215H520', next: 'M420,170H520', q: 'M640,170H780', fb: 'M700,170V36H345V70',
+    s30: 'M710,320V365H20V110H40', s5: 'M675,320V345H115V290', t30: 'M190,110H270', t5: 'M190,250H270'
+  };
+
+  /* what the architecture view shows; lags the model while a bead is travelling */
+  var D = snap();
+  function syncTimers() { var s = snap(); ['t30', 't5', 'left30', 'left5', 'run30', 'run5'].forEach(function (k) { D[k] = s[k]; }); }
+  function showTimer(t, run, left, N, out) {
+    t.bar.setAttribute('width', run ? (114 * left / N).toFixed(1) : 0);
+    t.track.classList.toggle('exp', !!out);
+    t.num.textContent = !run ? 'idle' : out ? 'expired' : left + ' s left';
+    t.num.classList.remove('v0', 'v1');
+    t.num.classList.add(out ? 'v1' : 'v0');
+    if (!run) t.num.classList.remove('v0');
+    DD.setHi(t.w, out); DD.setVal(t.val, out, t === tm30 ? 'T30 = ' : 'T5 = ');
+  }
+  var EQ = [['S1 · T30 = ', 'S1', 'S2'], ['S2 · T5 = ', 'S2', 'S3'], ['S3 · T30 = ', 'S3', 'S4'], ['S4 · T5 = ', 'S4', 'S1']];
+  function renderArch() {
+    showTimer(tm30, D.run30, D.left30, 30, D.t30);
+    showTimer(tm5, D.run5, D.left5, 5, D.t5);
+    var tv = USES30[D.state] ? D.t30 : D.t5;
+    eq1.textContent = EQ[D.state][0] + tv;
+    eq2.textContent = '→ next = ' + NAMES[D.next];
+    nextT.textContent = 'next = ' + bits(D.next); nextN.textContent = '(' + NAMES[D.next] + ')';
+    regT.textContent = bits(D.state); regN.textContent = '(' + NAMES[D.state] + ')';
+    qT.textContent = bits(D.state);
+    fbT.textContent = 'state = ' + bits(D.state) + ' (' + NAMES[D.state] + ')';
+    var o = OUT[D.state];
+    olT.textContent = ONAMES.filter(function (n, k) { return o[k]; }).join(', ') + ' = 1';
+    for (var k = 0; k < 6; k++) { DD.setHi(oW[k], o[k]); DD.setVal(oV[k], o[k], ONAMES[k] + ' = '); }
+    setLamps(aHeadM, o.slice(0, 3)); setLamps(aHeadS, o.slice(3));
+    DD.setHi(st30W, 0); DD.setHi(st5W, 0);
+  }
+  function setLamps(L, v) { for (var k = 0; k < 3; k++) L[k].classList.toggle('on', !!v[k]); }
+
+  /* ---- animations; a newer event cancels older ones ---- */
+  var genE = 0, genX = 0, genS = 0, sdShown = 0;
+  function flashClk() {
+    if (speed > 5 && !manual) return;
+    DD.restart(clkEdge, 'flash-once'); DD.setHi(clkW, 1);
+    setTimeout(function () { DD.setHi(clkW, 0); }, 260);
+  }
+  function onEdge(prev, changed) {
+    var my = ++genE; genX++;
+    nsl.hot(0); nextT.classList.remove('v1');
+    flashClk();
+    var a = anim(), k = manual ? 1.6 : 1;
+    if (changed) sdTransition(prev.state, M.state, a, k);
+    if (!a) { D = snap(); return; }
+    D = prev;
+    edgeChain(my, changed, k);
+  }
+  /* clk edge → register captures next → state bead to output logic (and back to the
+     next-state logic, and a start pulse to the timer on entry) → output beads to the lamps */
+  async function edgeChain(my, changed, k) {
+    await Promise.all([DD.token(ar, P.clk, { ctrl: 1, value: 1, dur: 170 * k, r: 7 }),
+                       DD.token(ar, P.next, { value: bits(D.next), dur: 170 * k, r: 10 })]);
+    if (my !== genE) return;
+    D.state = M.state; regB.hot(1); renderArch();
+    var sv = bits(M.state), ps = [DD.token(ar, P.q, { value: sv, dur: 250 * k, r: 10 }),
+                                  DD.token(ar, P.fb, { value: sv, dur: 250 * k, r: 10 })];
+    if (changed) { var w = USES30[M.state] ? st30W : st5W; DD.setHi(w, 1); ps.push(DD.token(ar, USES30[M.state] ? P.s30 : P.s5, { ctrl: 1, value: 1, dur: 250 * k, r: 7 })); }
+    await Promise.all(ps);
+    if (my !== genE) return;
+    regB.hot(0); syncTimers(); D.next = nextState(); renderArch();
+    var o = OUT[M.state];
+    await Promise.all(oPath.map(function (p, j) { return DD.token(ar, p, { value: o[j], dur: 190 * k, r: 7 }); }));
+    if (my !== genE) return;
+    D = snap(); renderArch();
+  }
+  /* a timer expires between edges: T bead into the next-state logic, then the next value changes */
+  async function animateExpiry() {
+    var my = ++genX;
+    syncTimers(); renderArch();
+    if (anim()) {
+      await DD.token(ar, USES30[M.state] ? P.t30 : P.t5, { value: 1, dur: 380 });
+      if (my !== genX) return;
+    }
+    D.next = nextState(); nsl.hot(1); renderArch();
+    nextT.classList.add('v1');
+    await DD.sleep(anim() ? 700 : 300);
+    if (my !== genX) return;
+    nsl.hot(0); nextT.classList.remove('v1');
+  }
+
+  /* ================= state transition diagram ================= */
+  var sd = document.getElementById('sd');
+  var CX = [150, 360, 570, 780], CY = 150, R = 34;
+  function sw(d, cls) { return DD.wire(sd, d, cls); }
+  function arrowHead(path) {
+    var L = path.getTotalLength(), p = path.getPointAtLength(L), q = path.getPointAtLength(L - 6);
+    var a = Math.atan2(p.y - q.y, p.x - q.x), s = 10, w = .42;
+    var pts = [[p.x, p.y], [p.x - s * Math.cos(a - w), p.y - s * Math.sin(a - w)], [p.x - s * Math.cos(a + w), p.y - s * Math.sin(a + w)]];
+    return DD.el('polygon', { points: pts.map(function (z) { return z[0].toFixed(1) + ',' + z[1].toFixed(1); }).join(' '), 'class': 'ah' }, sd);
+  }
+  function pol(cx, deg, r) { var a = deg * Math.PI / 180; return [cx + r * Math.cos(a), CY - r * Math.sin(a)]; }
+  function f(p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }
+  /* reset arrow */
+  var rst = sw('M150,50V' + (CY - R - 1)); arrowHead(rst);
+  DD.text(sd, 150, 40, 'Reset', 'lbl');
+  /* self-loops: S1's points up-left (Reset comes from above), the others straight up */
+  var loops = [], loopAh = [], arcs = [], arcAh = [];
+  var LOOPLAB = ['T30 = 0', 'T5 = 0', 'T30 = 0', 'T5 = 0'], ARCLAB = ['T30 = 1', 'T5 = 1', 'T30 = 1', 'T5 = 1'];
+  for (i = 0; i < 4; i++) {
+    var d;
+    if (i === 0) d = 'M' + f(pol(150, 165, R)) + 'C' + f(pol(150, 165, 92)) + ' ' + f(pol(150, 115, 92)) + ' ' + f(pol(150, 115, R + 1));
+    else d = 'M' + f(pol(CX[i], 115, R)) + 'C' + f(pol(CX[i], 115, 92)) + ' ' + f(pol(CX[i], 65, 92)) + ' ' + f(pol(CX[i], 65, R + 1));
+    loops[i] = sw(d); loopAh[i] = arrowHead(loops[i]);
+    if (i === 0) DD.text(sd, 88, 82, LOOPLAB[0], 'lbl', 'end');
+    else DD.text(sd, CX[i], CY - 80, LOOPLAB[i], 'lbl');
+  }
+  for (i = 0; i < 3; i++) {
+    var a0 = pol(CX[i], 25, R), a1 = pol(CX[i + 1], 155, R + 1), mx = (CX[i] + CX[i + 1]) / 2;
+    arcs[i] = sw('M' + f(a0) + 'Q' + mx + ',' + (CY - 56) + ' ' + f(a1)); arcAh[i] = arrowHead(arcs[i]);
+    DD.text(sd, mx, CY - 44, ARCLAB[i], 'lbl');
+  }
+  arcs[3] = sw('M' + f(pol(780, -20, R)) + 'C890,180 900,290 800,290H150C40,290 40,180 ' + f(pol(150, 200, R + 1)));
+  arcAh[3] = arrowHead(arcs[3]);
+  DD.text(sd, 465, 308, ARCLAB[3], 'lbl');
+  /* state circles with encoding and Moore outputs */
+  var circ = [], moT = [];
+  var MO = [['MG = 1', 'SR = 1'], ['MY = 1', 'SR = 1'], ['MR = 1', 'SG = 1'], ['MR = 1', 'SY = 1']];
+  for (i = 0; i < 4; i++) (function (k) {
+    var g = DD.el('g', { 'class': 'stg', tabindex: 0, role: 'button', 'aria-label': 'Jump to state ' + NAMES[k] }, sd);
+    circ[k] = DD.el('circle', { cx: CX[k], cy: CY, r: R, 'class': 'st' }, g);
+    DD.text(g, CX[k], CY + 3, NAMES[k], 'stname');
+    DD.text(g, CX[k], CY + 19, bits(k), 'lbl small');
+    g.addEventListener('click', function () { jump(k); });
+    g.addEventListener('keydown', function (e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); jump(k); } });
+    moT[k] = [DD.text(sd, CX[k], CY + 58, MO[k][0], 'mo'), DD.text(sd, CX[k], CY + 74, MO[k][1], 'mo')];
+  })(i);
+  async function sdTransition(from, to, a, k) {
+    var my = ++genS;
+    if (!a) { sdShown = to; return; }
+    sdShown = from;
+    await DD.token(sd, arcs[from], { dur: 520 * k, r: 7 });
+    if (my !== genS) return;
+    sdShown = to; renderSD();
+  }
+  function renderSD() {
+    var s = sdShown, waiting = s === M.state && !Tcur(), pending = s === M.state && Tcur();
+    for (var k = 0; k < 4; k++) {
+      circ[k].classList.toggle('cur', k === s);
+      moT[k][0].classList.toggle('cur', k === s); moT[k][1].classList.toggle('cur', k === s);
+      var lw = k === s && waiting, aw2 = k === s && pending;
+      DD.setHi(loops[k], lw); DD.flow(loops[k], lw); loopAh[k].classList.toggle('hi', lw);
+      DD.setHi(arcs[k], aw2); DD.flow(arcs[k], aw2); arcAh[k].classList.toggle('hi', aw2);
+    }
+  }
+
+  /* ================= tables ================= */
+  var nst = document.getElementById('nst'), ot = document.getElementById('ot');
+  var otb = ot.querySelector('tbody');
+  for (i = 0; i < 4; i++) (function (k) {
+    var tr = document.createElement('tr');
+    tr.className = 'pick'; tr.dataset.k = k;
+    var h = '<td>' + NAMES[k] + '</td><td>' + bits(k) + '</td>';
+    OUT[k].forEach(function (v, j) { h += '<td class="' + (j === 0 || j === 3 ? 'sep ' : '') + (v ? 'one' : 'zero') + '">' + v + '</td>'; });
+    tr.innerHTML = h;
+    tr.addEventListener('click', function () { jump(k); });
+    otb.appendChild(tr);
+  })(i);
+
+  /* ================= history strip ================= */
+  var timSvg = document.getElementById('tim');
+  function tel(t, a) { return DD.el(t, a, timSvg); }
+  function renderTiming() {
+    while (timSvg.firstChild) timSvg.removeChild(timSvg.firstChild);
+    var SL = 5, x0 = 64, rh = 26, h = 12, top = 22;
+    var rows = [{ label: 'state', bus: 1 }, { label: 'T30', f: function (r) { return r.a; } }, { label: 'T5', f: function (r) { return r.b; } }];
+    ONAMES.forEach(function (n, k) { rows.push({ label: n, cls: LCLS[k], f: function (r) { return OUT[r.s][k]; } }); });
+    var W = x0 + NS * SL + 20, H = top + rows.length * rh + 22;
+    timSvg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); timSvg.setAttribute('width', W); timSvg.setAttribute('height', H);
+    timSvg.classList.add('timing');
+    var now = Math.floor(M.simT * 2 + 1e-6), start = Math.max(0, now - NS + 1);
+    var recs = [];
+    hist.forEach(function (r) { if (r.j >= start && r.j < now) recs[r.j - start] = r; });
+    recs[now - start] = { j: now, s: M.state, a: T30(), b: T5() };
+    function X(j) { return x0 + (j - start) * SL; }
+    tel('rect', { x: X(now), y: top - 4, width: SL, height: rows.length * rh + 4, 'class': 't-now' });
+    var g0 = Math.ceil(start / 20) * 20;
+    for (var j = g0; j <= start + NS; j += 20) {
+      tel('line', { x1: X(j), y1: top - 4, x2: X(j), y2: top + rows.length * rh, 'class': 't-grid' });
+      DD.text(timSvg, X(j), H - 6, (j / 2) + ' s', 't-small');
+    }
+    rows.forEach(function (row, ri) {
+      var yc = top + ri * rh + rh / 2, hi = yc - h / 2, lo = yc + h / 2;
+      DD.text(timSvg, x0 - 8, yc + 4, row.label, 't-lab', 'end');
+      var s = 0, n = recs.length;
+      if (row.bus) {
+        while (s < n) {
+          if (!recs[s]) { s++; continue; }
+          var e = s; while (e + 1 < n && recs[e + 1] && recs[e + 1].s === recs[s].s) e++;
+          var xa = X(start + s), xb = X(start + e + 1);
+          tel('polygon', { points: [[xa + 3, hi], [xb - 3, hi], [xb, yc], [xb - 3, lo], [xa + 3, lo], [xa, yc]].map(function (p) { return p.join(','); }).join(' '), 'class': 't-bus' });
+          if (xb - xa >= 18) DD.text(timSvg, (xa + xb) / 2, yc + 4, NAMES[recs[s].s], 't-lab');
+          if (s > 0 && recs[s - 1] && recs[s - 1].s !== recs[s].s) DD.text(timSvg, xa, top - 8, String((start + s) / 2), 't-small');
+          s = e + 1;
+        }
+        return;
+      }
+      var prev = null;
+      for (s = 0; s < n; s++) {
+        if (!recs[s]) { prev = null; continue; }
+        var v = row.f(recs[s]), xs = X(start + s), y = v ? hi : lo;
+        if (prev !== null && prev !== v) tel('line', { x1: xs, y1: prev ? hi : lo, x2: xs, y2: y, 'class': 't-sig' });
+        tel('line', { x1: xs, y1: y, x2: xs + SL, y2: y, 'class': 't-sig' + (v ? ' hi' : '') + (row.cls ? ' ' + row.cls : '') });
+        prev = v;
+      }
+    });
+  }
+
+  /* ================= controls ================= */
+  var playBtn = document.getElementById('play'), stepBtn = document.getElementById('step');
+  var skipBtn = document.getElementById('skip'), resetBtn = document.getElementById('reset');
+  var spBtns = document.querySelectorAll('[data-sp]');
+  function setPlaying(p) { playing = p; playBtn.textContent = p ? 'Pause ⏸' : 'Play ⏵'; }
+  playBtn.addEventListener('click', function () { stepTarget = null; setPlaying(!playing); });
+  spBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      speed = +b.dataset.sp;
+      spBtns.forEach(function (x) { var on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    });
+  });
+  /* Step runs the simulation quickly to the next rising edge */
+  stepBtn.addEventListener('click', function () {
+    setPlaying(false);
+    stepTarget = Math.floor((stepTarget !== null ? stepTarget : M.simT) + 1e-6) + 1;
+  });
+  /* Skip jumps straight to the half second where the running timer reaches 0 */
+  skipBtn.addEventListener('click', function () {
+    if (Tcur()) return;
+    var left = USES30[M.state] ? M.left30 : M.left5;
+    var nt = Math.floor(M.simT + 0.5 + 1e-6) + 0.5;
+    stepTarget = null;
+    manual = true; advance(nt + left - 1 - M.simT); manual = false;
+    drawCars();
+  });
+  function resetAll() {
+    genE++; genX++; genS++;
+    M.simT = 0; M.edges = 0; hist = []; stepTarget = null;
+    enter(0); D = snap(); sdShown = 0;
+    DD.restart(rstEdge, 'flash-once');
+    render();
+  }
+  resetBtn.addEventListener('click', resetAll);
+  /* clicking a state (diagram or output table) loads it and restarts its timer */
+  function jump(k) {
+    genE++; genX++; genS++;
+    enter(k); D = snap(); sdShown = k;
+    nsl.hot(0); regB.hot(0);
+    render();
+  }
+
+  /* ================= render: every view from the one model ================= */
+  function render() {
+    var s = M.state, o = OUT[s];
+    setLamps(sHeadM, o.slice(0, 3)); setLamps(sHeadS, o.slice(3));
+    var on = ONAMES.filter(function (n, k) { return o[k]; }).map(function (n) { return n + ' = 1'; }).join(', ');
+    var tn = USES30[s] ? 'T30' : 'T5', left = USES30[s] ? M.left30 : M.left5;
+    var tt = Tcur() ? tn + ' = 1 (expired), ' + NAMES[nextState()] + ' at the next edge' : tn + ' = ' + left + ' s left';
+    document.getElementById('bfn').textContent = NAMES[s] + ': ' + on + ', ' + STREET[s] + ', ' + tt;
+    document.getElementById('clock').textContent = 't = ' + M.simT.toFixed(1) + ' s · ' + M.edges + ' clock edges';
+    skipBtn.disabled = !!Tcur();
+    if (genS === 0 || sdShown === undefined) sdShown = s;
+    renderSD();
+    DD.markRow(nst, s + '-' + Tcur());
+    DD.markRow(ot, s);
+    renderTiming();
+    renderArch();
+  }
+
+  /* ================= the clock: rAF, with a timer fallback (rAF stops in background tabs and headless) ================= */
+  var lastT = null, lastRaf = 0;
+  function frame() {
+    var now = performance.now();
+    var dt = lastT === null ? 0 : Math.min(0.25, (now - lastT) / 1000);
+    lastT = now;
+    if (playing) advance(dt * speed);
+    else if (stepTarget !== null) {
+      manual = true;
+      advance(Math.min(dt * 4, stepTarget - M.simT));
+      manual = false;
+      if (M.simT >= stepTarget - 1e-9) stepTarget = null;
+    }
+    drawCars();
+    if (Math.floor(now / 100) !== Math.floor((now - dt * 1000) / 100)) document.getElementById('clock').textContent = 't = ' + M.simT.toFixed(1) + ' s · ' + M.edges + ' clock edges';
+  }
+  function raf() { lastRaf = performance.now(); frame(); requestAnimationFrame(raf); }
+  requestAnimationFrame(raf);
+  setInterval(function () { if (performance.now() - lastRaf > 150) frame(); }, 100);
+
+  enter(INIT_STATE); D = snap(); sdShown = INIT_STATE;
+  render();
+})();
+</script>
+</body>
+</html>
