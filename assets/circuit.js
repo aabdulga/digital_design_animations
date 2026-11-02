@@ -239,6 +239,46 @@
     });
   };
 
+  /* ---------- animation ---------- */
+  var reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  /* token(parent, path, { value, ctrl, dur, r }) sends a small labelled bead along a path.
+     path: an SVG path element or a path string (it is drawn invisibly). Bead is orange for 1,
+     grey for 0, teal with ctrl. Resolves when the bead arrives (immediately with reduced motion). */
+  function token(parent, path, opts) {
+    opts = opts || {};
+    var p = typeof path === 'string' ? el('path', { d: path, fill: 'none', stroke: 'none' }, parent) : path;
+    var len = p.getTotalLength(), dur = opts.dur || 600, r = opts.r || 8;
+    var v = opts.value;
+    var g = el('g', { 'class': 'token' + (v === 0 ? ' v0' : '') + (opts.ctrl ? ' ctrl' : '') }, parent);
+    el('circle', { r: r }, g);
+    if (v !== undefined && v !== null) { var t = text(g, 0, 4, String(v), 'lbl'); t.style.fontSize = (r * 1.25) + 'px'; }
+    function done() { if (g.parentNode) g.parentNode.removeChild(g); if (typeof path === 'string' && p.parentNode) p.parentNode.removeChild(p); }
+    if (reduceMotion || !len) { done(); return Promise.resolve(); }
+    var p0 = p.getPointAtLength(0);
+    g.setAttribute('transform', 'translate(' + p0.x + ',' + p0.y + ')');
+    return new Promise(function (res) {
+      var t0 = null, finished = false;
+      function finish() { if (finished) return; finished = true; done(); res(); }
+      function step(ts) {
+        if (finished) return;
+        if (t0 === null) t0 = ts;
+        var k = Math.min(1, (ts - t0) / dur), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+        var pt = p.getPointAtLength(e * len);
+        g.setAttribute('transform', 'translate(' + pt.x + ',' + pt.y + ')');
+        if (k < 1) requestAnimationFrame(step); else finish();
+      }
+      requestAnimationFrame(step);
+      /* frames pause in background tabs; never let the circuit's state wait on them */
+      setTimeout(finish, dur + 250);
+    });
+  }
+  /* flow(els, on): marching-dash animation on wires that are currently carrying the selected signal */
+  function flow(els, on) {
+    if (!els) return;
+    if (els.length === undefined || els.tagName) els = [els];
+    for (var i = 0; i < els.length; i++) els[i].classList.toggle('flow', !!on);
+  }
+
   /* ---------- page chrome ---------- */
   var embedded = false;
   try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
@@ -261,6 +301,7 @@
     bin: bin, bitsOf: bitsOf, sleep: sleep, restart: restart,
     gate: gate, block: block, muxShape: muxShape, pin: pin, led: led,
     bitButton: bitButton, swButton: swButton, markRow: markRow, Timing: Timing,
+    token: token, flow: flow, reduceMotion: reduceMotion,
     embedded: embedded
   };
 })();

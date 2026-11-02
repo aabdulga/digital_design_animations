@@ -16,6 +16,21 @@
     <p>A full adder adds three bits: A, B and a carry-in Cin from the column to its right. It gives a sum bit S and a carry-out Cout. Here it is built from two half adders. The first adds A and B. The second adds that partial sum P to Cin. An OR gate merges the two carries, because at most one of them can be 1.</p>
   </header>
 
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="40 0 450 250" width="450" height="250" role="img"
+           aria-label="Full-adder symbol FA: inputs A and B on top, carry-in Cin from the right, sum S out of the bottom and carry-out Cout to the left. Beside it, the same addition written as a column sum."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>A full adder is one column of a pencil-and-paper addition. It adds the two bits in that column and the carry from the column to its right. The answer is 0 to 3, so it needs two bits: the sum S stays in this column and the carry Cout moves one column left.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Flip any input here or in the gate-level circuit below; both views share the same signals.</p>
+    </div>
+  </section>
+
   <div class="top">
     <section class="panel scroll">
       <h2>Gate-level circuit</h2>
@@ -132,6 +147,77 @@
     sweepBtn.disabled = false;
   });
 
+  /* ---- block view: the same signals on one FA symbol, plus the column sum ---- */
+  var blk = document.getElementById('blk');
+  var bBox = DD.block(blk, 150, 80, 120, 90);
+  DD.text(blk, 210, 131, 'FA', 'sym-name');
+  DD.text(blk, 185, 96, 'A', 'port'); DD.text(blk, 235, 96, 'B', 'port');
+  DD.text(blk, 264, 129, 'Cin', 'port', 'end'); DD.text(blk, 156, 129, 'Cout', 'port', 'start');
+  DD.text(blk, 210, 163, 'S', 'port');
+  var bW = {
+    A: DD.wire(blk, [[185, 48], [185, 80]]), B: DD.wire(blk, [[235, 48], [235, 80]]),
+    Cin: DD.wire(blk, [[336, 125], [270, 125]], 'ctrl'),
+    Cout: DD.wire(blk, [[150, 125], [82, 125]], 'ctrl'), S: DD.wire(blk, [[210, 170], [210, 206]])
+  };
+  var bPath = { A: 'M185,48V80', B: 'M235,48V80', Cin: 'M336,125H270', Cout: 'M150,125H82', S: 'M210,170V206' };
+  var bPin = {
+    A: DD.pin(blk, 197, 36, 'A', { side: 'top', onToggle: function (v) { A = v; render(); } }),
+    B: DD.pin(blk, 247, 36, 'B', { side: 'top', onToggle: function (v) { B = v; render(); } }),
+    Cin: DD.pin(blk, 360, 125, 'Cin', { side: 'top', ctrl: 1, onToggle: function (v) { Cin = v; render(); } })
+  };
+  var bLedC = DD.led(blk, 70, 125, 12, null, { ctrl: 1 });
+  DD.text(blk, 70, 155, 'Cout', 'lbl');
+  var bLedS = DD.led(blk, 210, 218, 12, 'S');
+  /* the column sum as a student writes it */
+  DD.text(blk, 428, 80, 'A', 'lbl muted', 'end'); DD.text(blk, 428, 104, 'B', 'lbl muted', 'end');
+  DD.text(blk, 428, 128, '+ Cin', 'lbl muted', 'end');
+  DD.el('line', { x1: 398, y1: 138, x2: 478, y2: 138, 'class': 'wire' }, blk);
+  DD.text(blk, 438, 180, 'Cout', 'port'); DD.text(blk, 466, 180, 'S', 'port');
+  var bCol = {
+    A: DD.text(blk, 466, 80, '0', 'lbl val'), B: DD.text(blk, 466, 104, '0', 'lbl val'), Cin: DD.text(blk, 466, 128, '0', 'lbl val'),
+    Cout: DD.text(blk, 438, 162, '0', 'lbl val'), S: DD.text(blk, 466, 162, '0', 'lbl val')
+  };
+  var shown = null, gen = 0;
+  function setCol(name, v) { if (v === null) { bCol[name].textContent = '·'; bCol[name].classList.remove('v0', 'v1'); } else DD.setVal(bCol[name], v); }
+  function showInputs(a, b, c) { setCol('A', a); setCol('B', b); setCol('Cin', c); }
+  function showOutputs(co, s) { DD.setHi(bW.Cout, co); DD.setHi(bW.S, s); bLedC.set(co); bLedS.set(s); }
+  function flowAll(on) { for (var n in bW) DD.flow(bW[n], on); }
+  /* input beads travel in, the column sum is worked out, then S and Cout leave and the lamps light */
+  async function animateBlock(a, b, c, co, s) {
+    var my = ++gen;
+    flowAll(0); bBox.hot(0);
+    setCol('Cout', null); setCol('S', null);
+    DD.flow([bW.A, bW.B, bW.Cin], 1);
+    await Promise.all([DD.token(blk, bPath.A, { value: a, dur: 500 }), DD.token(blk, bPath.B, { value: b, dur: 500 }),
+                       DD.token(blk, bPath.Cin, { value: c, ctrl: c, dur: 500 })]);
+    if (my !== gen) return;
+    DD.flow([bW.A, bW.B, bW.Cin], 0); showInputs(a, b, c); bBox.hot(1);
+    await DD.sleep(400);
+    if (my !== gen) return;
+    setCol('Cout', co); setCol('S', s);
+    await DD.sleep(300);
+    if (my !== gen) return;
+    bBox.hot(0); DD.flow([bW.S, bW.Cout], 1);
+    await Promise.all([DD.token(blk, bPath.S, { value: s, dur: 500 }), DD.token(blk, bPath.Cout, { value: co, ctrl: co, dur: 500 })]);
+    if (my !== gen) return;
+    flowAll(0); showOutputs(co, s);
+  }
+  function renderBlock(co, s) {
+    bPin.A.set(A); bPin.B.set(B); bPin.Cin.set(Cin);
+    DD.setHi(bW.A, A); DD.setHi(bW.B, B); DD.setHi(bW.Cin, Cin);
+    document.getElementById('bfn').textContent = A + ' + ' + B + ' + ' + Cin + ' = ' + (A + B + Cin) + ' = ' + DD.bin(A + B + Cin, 2) + '₂ → Cout = ' + co + ', S = ' + s;
+    var key = A * 4 + B * 2 + Cin;
+    if (shown === null) { showInputs(A, B, Cin); setCol('Cout', co); setCol('S', s); showOutputs(co, s); }
+    else if (key !== shown) animateBlock(A, B, Cin, co, s);
+    shown = key;
+  }
+  var bPlay = document.getElementById('bplay');
+  bPlay.addEventListener('click', async function () {
+    bPlay.disabled = true;
+    for (var i = 0; i < 8; i++) { setRow(i); await DD.sleep(DD.reduceMotion ? 700 : 2300); }
+    bPlay.disabled = false;
+  });
+
   function render() {
     var v = { A: A, B: B, Cin: Cin };
     v.P = A ^ B; v.G1 = A & B;
@@ -147,6 +233,7 @@
     var sum = A + B + Cin;
     document.getElementById('fn').textContent = 'A + B + Cin = ' + A + ' + ' + B + ' + ' + Cin + ' = ' + sum +
       ' = ' + DD.bin(sum, 2) + '₂ → Cout S = ' + v.Cout + ' ' + v.S;
+    renderBlock(v.Cout, v.S);
   }
   render();
 })();

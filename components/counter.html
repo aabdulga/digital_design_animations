@@ -10,6 +10,14 @@
   /* the C+1 value travelling round the feedback bus into the register */
   .sch .pulse.travel { animation: ctr-travel .6s linear forwards; }
   @keyframes ctr-travel { 0% { opacity: 1; offset-distance: 0%; } 100% { opacity: 1; offset-distance: 100%; } }
+  /* odometer digits roll on a CSS transition; the wrap cue fades in and out */
+  .sch .odo { transition: transform .35s ease-in-out; }
+  .sch .odo.snap { transition: none; }
+  .sch .odo text { font-size: 40px; font-weight: 600; }
+  .sch .wrapcue { opacity: 0; font-weight: 600; fill: var(--hi); }
+  .sch .wrapcue.show { animation: ctr-wrap 1.4s ease-out; }
+  @keyframes ctr-wrap { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .sch .odo { transition: none; } .sch .wrapcue.show { animation-duration: .01s; } }
   @media (prefers-reduced-motion: reduce) { .sch .pulse.travel { animation-duration: .01s; } }
 </style>
 </head>
@@ -21,6 +29,21 @@
     <h1>Up Counter</h1>
     <p>A 4-bit up counter. A 4-bit load/clear register holds the count C; a <code>+1</code> block adds one to C and feeds it back to the register's data input. With <code>cnt</code> high, every rising edge loads that incremented value. When the count reaches 15 the terminal-count line <code>tc</code> goes high, and the next increment wraps around to 0.</p>
   </header>
+
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 590 244" width="590" height="244" role="img"
+           aria-label="Counter symbol: clr and cnt on the left, clk underneath, the 4-bit count C on a bus to the right and a tc lamp. Inside, an odometer shows the count."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>Think of a car's odometer that only goes up to 15. With cnt = 1, each clock edge rolls the number on by one; clr = 1 snaps it back to 0. At 15 the tc lamp lights, and the next count wraps to 0.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button><button class="btn" id="bclk">Pulse clock</button></div>
+      <p>Animate counts up until the counter wraps. Clock here or in the circuit below; both views share the same count.</p>
+    </div>
+  </section>
 
   <div class="top">
     <section class="panel scroll">
@@ -149,12 +172,89 @@
   tt.querySelectorAll('tbody tr').forEach(function (tr) {
     tr.addEventListener('click', function () { if (busy) return; clr = +tr.dataset.k[0]; cnt = +tr.dataset.k[1]; render(); });
   });
+
+  /* ---- block view: the counter as one symbol with an odometer inside ---- */
+  var blk = document.getElementById('blk');
+  var bBox = DD.block(blk, 150, 44, 260, 156);
+  DD.text(blk, 280, 66, '4-BIT COUNTER', 'sym-name');
+  DD.text(blk, 158, 104, 'clr', 'port', 'start');
+  DD.text(blk, 158, 144, 'cnt', 'port', 'start');
+  DD.text(blk, 402, 104, 'C', 'port', 'end');
+  DD.text(blk, 402, 164, 'tc', 'port', 'end');
+  DD.el('polyline', { points: '192,200 200,189 208,200', 'class': 'clk-tri' }, blk);
+  var bClkW = DD.wire(blk, [[200, 230], [200, 200]], 'ctrl');
+  DD.text(blk, 210, 234, 'clk', 'lbl', 'start');
+  var bClrW = DD.wire(blk, [[110, 100], [150, 100]], 'ctrl');
+  var bCntW = DD.wire(blk, [[110, 140], [150, 140]], 'ctrl');
+  var bClrP = DD.pin(blk, 110, 100, 'clr', { ctrl: 1, onToggle: function (v) { if (busy) return; clr = v; render(); } });
+  var bCntP = DD.pin(blk, 110, 140, 'cnt', { ctrl: 1, onToggle: function (v) { if (busy) return; cnt = v; render(); } });
+  DD.wire(blk, [[410, 100], [520, 100]], 'bus');
+  DD.slash(blk, 470, 100, 4);
+  var bBusT = DD.text(blk, 440, 92, '0000', 'lbl val');
+  DD.text(blk, 528, 104, 'C[3:0]', 'lbl', 'start');
+  var bTcW = DD.wire(blk, [[410, 160], [470, 160]]);
+  var bTc = DD.led(blk, 482, 160, 11, 'tc');
+  var wrapT = DD.text(blk, 280, 30, '↺ wrap: 15 → 0', 'lbl wrapcue');
+  /* odometer: two digit windows clipped from vertical strips (tens 0,1,0; ones 0-9 twice) */
+  var clip = DD.el('clipPath', { id: 'odo-clip' }, DD.el('defs', null, blk));
+  DD.el('rect', { x: 234, y: 78, width: 92, height: 52 }, clip);
+  DD.el('rect', { x: 234, y: 78, width: 44, height: 52, rx: 4, 'class': 'inside' }, blk);
+  DD.el('rect', { x: 282, y: 78, width: 44, height: 52, rx: 4, 'class': 'inside' }, blk);
+  var clipG = DD.el('g', { 'clip-path': 'url(#odo-clip)' }, blk), STEP = 52;
+  function strip(x, digits) {
+    var g = DD.el('g', { 'class': 'odo' }, clipG);
+    digits.forEach(function (d, i) { DD.text(g, x, 118 + i * STEP, String(d), 'lbl'); });
+    return { g: g, idx: 0 };
+  }
+  var tens = strip(256, [0, 1, 0]), ones = strip(304, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  var bBinT = DD.text(blk, 280, 152, '0000', 'lbl val');
+  function setStrip(s, idx, roll) {
+    s.g.classList.toggle('snap', !roll);
+    s.g.style.transform = 'translateY(' + (-idx * STEP) + 'px)';
+    if (!roll) void s.g.getBoundingClientRect();
+    s.idx = idx;
+  }
+  /* roll forward to digit d: past 9 (or past 1 on the tens wheel) it continues into the second copy */
+  function rollTo(s, d, period) { setStrip(s, d >= s.idx % period ? d : d + period, true); }
+  var gen = 0, animating = 0;
+  function showBlock(c) {
+    setStrip(tens, Math.floor(c / 10), false); setStrip(ones, c % 10, false);
+    bBinT.textContent = DD.bin(c, 4); bBusT.textContent = DD.bin(c, 4);
+    var tc = c === 15 ? 1 : 0; DD.setHi(bTcW, tc); bTc.set(tc);
+    DD.setHi(bClkW, 0); bBox.hot(0);
+  }
+  /* the clock bead reaches the edge, then the wheels roll (or snap to 0 on clear) */
+  async function animateBlock(from, to, k) {
+    var my = ++gen; animating = my;
+    showBlock(from);
+    DD.setHi(bClkW, 1);
+    await DD.token(blk, 'M200,230V200', { ctrl: 1, value: 1, dur: 250 });
+    if (my !== gen) return;
+    if (k === '01') {
+      rollTo(tens, Math.floor(to / 10), 2); rollTo(ones, to % 10, 10);
+      if (from === 15) DD.restart(wrapT, 'show');
+    } else if (k === '10') { bBox.hot(1); setStrip(tens, 0, false); setStrip(ones, 0, false); }
+    bBinT.textContent = DD.bin(to, 4); bBusT.textContent = DD.bin(to, 4);
+    await DD.sleep(380);
+    if (my !== gen) return;
+    animating = 0; if (!busy) showBlock(C);   /* if the edge has not landed yet, render() shows the new count */
+  }
+  function renderBlock() {
+    var k = key();
+    DD.setHi(bClrW, clr); DD.setHi(bCntW, cnt); bClrP.set(clr); bCntP.set(cnt);
+    document.getElementById('bfn').textContent = 'C = ' + C + ' (' + DD.bin(C, 4) + '), next: ' + FN[k].toLowerCase();
+    if (!animating) showBlock(C);
+  }
+  document.getElementById('bclk').addEventListener('click', function () { pulseClock(); });
+  document.getElementById('bplay').addEventListener('click', function () { runToWrap(); });
+
   var tim = new DD.Timing(document.getElementById('tim'));
 
   function pulseClock() {
     if (busy) return Promise.resolve();
     busy = true;
     var k = key();
+    animateBlock(C, nextC(), k);
     DD.setHi(W.clk, 1);
     DD.restart(edge, 'flash-once');
     if (k === '01') { DD.restart(pulse, 'travel'); plusB.hot(1); }
@@ -184,6 +284,7 @@
     document.getElementById('cdec').textContent = C;
     document.getElementById('cbin').textContent = DD.bin(C, 4);
     document.getElementById('tcv').textContent = tc;
+    renderBlock();
     document.getElementById('fn').textContent = 'Next edge: ' + FN[k] + ' → ' + nextC() + (k === '01' && C === 15 ? ' (wrap)' : '');
 
     /* timing diagram: inputs held per cycle, C and tc change at the edge */
@@ -205,16 +306,17 @@
   }
 
   document.getElementById('clk').addEventListener('click', function () { pulseClock(); });
-  document.getElementById('reset').addEventListener('click', function () { if (busy) return; C = 0; clr = 0; cnt = 1; hist = []; render(); });
-  var playBtn = document.getElementById('play');
-  playBtn.addEventListener('click', async function () {
-    if (busy) return;
-    playBtn.disabled = true;
+  document.getElementById('reset').addEventListener('click', function () { if (busy) return; C = 0; clr = 0; cnt = 1; hist = []; gen++; animating = 0; render(); });
+  var playBtns = [document.getElementById('play'), document.getElementById('bplay')], playing = false;
+  async function runToWrap() {
+    if (busy || playing) return;
+    playing = true; playBtns.forEach(function (b) { b.disabled = true; });
     clr = 0; cnt = 1; render();
     var steps = 0;
     do { await DD.sleep(350); await pulseClock(); steps++; } while (C !== 0 && steps < 17);
-    playBtn.disabled = false;
-  });
+    playing = false; playBtns.forEach(function (b) { b.disabled = false; });
+  }
+  playBtns[0].addEventListener('click', runToWrap);
   render();
 })();
 </script>

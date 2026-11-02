@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MOS Transistors</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+/* Page-specific: transistor symbols, the switch drawing and the silicon cross-section.
+   Colors come only from the shared tokens in style.css. */
+.sch .ch { fill: none; stroke: var(--wire); stroke-width: 5; stroke-linecap: round; transition: stroke .2s; }
+.sch .ch.hi { stroke: var(--hi); }
+.sch .plate { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.sch .term { fill: var(--panel); stroke: var(--fg); stroke-width: 1.8; }
+.sch .lever { stroke: var(--fg); stroke-width: 3.5; stroke-linecap: round; transition: transform .3s ease; }
+.sch .lever.hi { stroke: var(--hi); }
+.sch .contact { fill: var(--panel); stroke: var(--fg); stroke-width: 1.8; }
+.sch .coil { fill: var(--panel); stroke: var(--wire); stroke-width: 2; transition: fill .2s, stroke .2s; }
+.sch .coil.hi { fill: var(--ctrl-soft); stroke: var(--ctrl); }
+
+/* cross-section */
+.sch .si { fill: color-mix(in srgb, var(--line) 45%, var(--panel)); stroke: var(--line); stroke-width: 1.5; }
+.sch .dope { fill: color-mix(in srgb, var(--box) 20%, var(--panel)); stroke: var(--box); stroke-width: 1.5; }
+.sch .oxide { fill: var(--panel); stroke: var(--muted); stroke-width: 1.2; }
+.sch .gate-el { fill: color-mix(in srgb, var(--ctrl) calc(var(--g, 0) * 45%), var(--panel)); stroke: var(--ctrl); stroke-width: 2; transition: fill .2s; }
+.sch .metal { fill: var(--muted); }
+.sch .chan { fill: var(--hi); transition: height .2s, opacity .2s; }
+.sch .depl { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; transition: height .2s; }
+.sch .el { fill: var(--hi); transition: opacity .2s; }
+.sch .hole { fill: var(--panel); stroke: var(--hi); stroke-width: 1.4; transition: opacity .2s; }
+.sch .maj { fill: none; stroke: var(--muted); stroke-width: 1.2; transition: opacity .2s; }
+.sch .maj.dotm { fill: var(--muted); stroke: none; }
+.sch .rg { font-family: var(--sans); font-size: 13px; font-weight: 600; fill: var(--fg); }
+.sch .rg.small { font-size: 11px; font-weight: 500; fill: var(--muted); }
+
+/* gate-voltage slider with Vt marked */
+.vg { display: grid; gap: 4px; }
+.vg input { width: 100%; margin: 0; }
+.vg .ticks { position: relative; height: 30px; font-family: var(--mono); font-size: .75rem; color: var(--muted); }
+.vg .ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.vg .ticks span::before { content: ""; display: block; width: 1px; height: 6px; background: var(--line); margin: 0 auto 2px; }
+.vg .ticks .vt { color: var(--ctrl); font-weight: 600; }
+.vg .ticks .vt::before { background: var(--ctrl); height: 8px; width: 2px; }
+.vg .ticks span:first-child { transform: none; }
+.vg .ticks span:first-child::before { margin: 0 0 2px 7px; }
+.vg .ticks span:last-child { transform: translateX(-100%); }
+.vg .ticks span:last-child::before { margin: 0 7px 2px auto; }
+
+/* PMOS panel */
+.pm { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.pm svg.sch { margin: 0 auto; }
+
+/* comparison table: the column of the transistor that is ON lights up */
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; color: var(--muted); font-family: var(--sans); }
+table.cmp td, table.cmp th { transition: background .2s, color .2s; }
+table.cmp .on { background: var(--hi-soft); color: var(--hi); font-weight: 600; }
+table.cmp tr.now td { font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#transistors">← All components</a>
+    <p class="kicker">Foundations</p>
+    <h1>MOS Transistors as Switches</h1>
+    <p>Every gate on the following pages is built from MOS transistors. For digital logic a transistor is a switch with three terminals: the voltage on the gate G decides whether the drain D and the source S are connected. An NMOS transistor turns on when G = 1; a PMOS transistor turns on when G = 0.</p>
+  </header>
+
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 480 280" width="480" height="280" role="img"
+           aria-label="An NMOS transistor symbol with gate G, drain D and source S, next to the same device drawn as a switch that closes when G is 1."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>The gate does not carry current into the transistor. It only controls the switch: G = 1 closes it, G = 0 opens it. While it is closed, current flows from D to S.</p>
+      <div class="row"><span class="lab">Gate</span><button class="bit ctrl" id="bg"><small>G</small><span class="v">0</span></button></div>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>G is shared by every view on this page: flip it here, in the drawing, or with the gate-voltage slider below.</p>
+    </div>
+  </section>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Inside an NMOS transistor</h2>
+      <svg id="xs" class="sch" viewBox="0 0 560 300" width="560" height="300" role="img"
+           aria-label="Cross-section of an NMOS transistor: a p-type substrate with two n+ regions, source and drain, and a gate electrode on a thin oxide between them. A channel of electrons forms under the gate when the gate voltage exceeds the threshold."></svg>
+      <div class="legend">
+        <span><i class="hi"></i>electrons (e⁻)</span><span><i class="ctrl"></i>gate voltage</span>
+        <span>Hollow circles: holes, the p-type substrate's own carriers.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Voltages</h2>
+      <div class="vg">
+        <label class="lab" for="vg">Gate voltage V<sub>G</sub> = <b id="vgv">0.00 V</b></label>
+        <input type="range" id="vg" min="0" max="1.2" step="0.01" value="0">
+        <div class="ticks"><span style="left:0">0</span><span class="vt" id="vtTick">V<sub>t</sub> = 0.4 V</span><span style="left:100%">V<sub>DD</sub> = 1.2 V</span></div>
+      </div>
+      <div class="row"><button class="sw" id="vds"><span class="dot"></span><code>drain V<sub>D</sub></code> <span class="st">0</span></button><span class="lab">apply V<sub>DD</sub> to the drain</span></div>
+      <div class="fn" id="xfn"></div>
+      <p class="note" style="margin:0" id="xnote"></p>
+      <div class="row"><button class="btn" id="sweep">Sweep V<sub>G</sub> 0 → V<sub>DD</sub></button></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>PMOS: the complement</h2>
+    <div class="pm">
+      <svg id="pblk" class="sch" viewBox="0 0 480 280" width="480" height="280" role="img"
+           aria-label="A PMOS transistor symbol with a bubble on its gate, next to a switch that closes when G is 0."></svg>
+      <svg id="pxs" class="sch" viewBox="0 0 560 300" width="560" height="300" role="img"
+           aria-label="Cross-section of a PMOS transistor: an n-type substrate with p+ source and drain regions. When the gate is at 0 a channel of holes forms under it."></svg>
+    </div>
+    <div class="fn" id="pfn" style="margin-top:10px"></div>
+    <p class="note">A PMOS transistor is the mirror image: an <b>n-type</b> substrate (an n-well in a real chip) with <b>p+</b> source and drain regions. Its source sits at V<sub>DD</sub>, so a gate at 0 is far below the source. That pulls <b>holes</b> (missing electrons, drawn as hollow circles) up under the gate and opens a p-type channel. The bubble on the symbol says: on when the gate is 0.</p>
+  </section>
+
+  <section class="panel scroll">
+    <h2>NMOS vs PMOS</h2>
+    <table class="tt cmp" id="cmp">
+      <thead><tr><th></th><th data-c="n">NMOS</th><th data-c="p">PMOS</th></tr></thead>
+      <tbody>
+        <tr><td>Turns on when</td><td data-c="n">G = 1</td><td data-c="p">G = 0</td></tr>
+        <tr class="now"><td id="nowLab">Right now (G = 0)</td><td data-c="n" id="nowN">OFF</td><td data-c="p" id="nowP">ON</td></tr>
+        <tr><td>Carriers in the channel</td><td data-c="n">electrons</td><td data-c="p">holes</td></tr>
+        <tr><td>Substrate, source/drain</td><td data-c="n">p-type, n+</td><td data-c="p">n-type, p+</td></tr>
+        <tr><td>Passes a strong</td><td data-c="n">0</td><td data-c="p">1</td></tr>
+        <tr><td>Passes a weak</td><td data-c="n">1 (only V<sub>DD</sub> − V<sub>t</sub>)</td><td data-c="p">0 (only up to V<sub>t</sub>)</td></tr>
+        <tr><td>Place in a CMOS gate</td><td data-c="n">pull-down network, to GND</td><td data-c="p">pull-up network, to V<sub>DD</sub></td></tr>
+      </tbody>
+    </table>
+    <p class="note">The highlighted column is the transistor that is on for the current G. With the same gate signal, exactly one of the two conducts: that is the idea behind every CMOS gate.</p>
+  </section>
+
+  <section class="notes">
+    <div><h3>A voltage-controlled switch</h3><p>The gate is separated from the silicon by an insulating oxide, so no current flows into it. Its voltage alone opens or closes the path between drain and source. That is why one gate output can drive many transistor gates.</p></div>
+    <div><h3>Strong 0, weak 1</h3><p>An NMOS stops conducting once its source rises to V<sub>G</sub> − V<sub>t</sub>, so it can pull a node fully down to 0 but only up to V<sub>DD</sub> − V<sub>t</sub>. A PMOS is the opposite. CMOS uses PMOS to pull up and NMOS to pull down, so every output is a strong 0 or 1.</p></div>
+    <div><h3>Threshold voltage</h3><p>V<sub>t</sub> is the gate voltage at which enough electrons gather under the gate to form a channel. Below it the transistor is off; above it, the higher V<sub>G</sub> goes, the more electrons and the more current. Logic only uses the two ends: 0 V and V<sub>DD</sub>.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var VDD = 1.2, VT = 0.4;
+  var G = 0, VG = 0, VD = 0;                         /* shared state: logic gate input, gate voltage, drain on/off */
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- a transistor symbol next to the same thing drawn as a switch ----------
+     p = 1 draws a PMOS (bubble on the gate, source on top, on when G = 0). */
+  function pair(svg, p) {
+    var X1 = 180, X2 = 400, T = 44, B = 216, cT = 104, cB = 156, gy = 130, px = 96, bx = 126;
+    var top = p ? 'S' : 'D', bot = p ? 'D' : 'S';
+    DD.text(svg, X1, 20, (p ? 'PMOS' : 'NMOS') + ' SYMBOL', 'lbl name');
+    DD.text(svg, X2, 20, 'AS A SWITCH', 'lbl name');
+    function term(x, y, name) { DD.el('circle', { cx: x, cy: y, r: 4, 'class': 'term' }, svg); DD.text(svg, x + 10, y + 4, name, 'lbl', 'start'); }
+    var o = { p: p, svg: svg, gen: 0, shown: -1 };
+    /* transistor */
+    o.dw = [DD.wire(svg, [[X1, T + 4], [X1, cT]]), DD.wire(svg, [[X1, cB], [X1, B - 4]])];
+    o.ch = DD.el('path', { d: 'M' + X1 + ',' + cT + 'V' + cB, 'class': 'ch' }, svg);
+    DD.el('path', { d: 'M' + (X1 - 9) + ',' + (cT + 5) + 'V' + (cB - 5), 'class': 'plate' }, svg);
+    var gEnd = X1 - 9;
+    if (p) { o.bub = DD.el('circle', { cx: X1 - 15, cy: gy, r: 5, 'class': 'bubble ctrl' }, svg); gEnd = X1 - 20; }
+    DD.text(svg, X1 + 10, gy + 4, p ? 'P' : 'N', 'lbl small', 'start');
+    term(X1, T, top); term(X1, B, bot);
+    o.gw = [DD.wire(svg, [[px, gy], [gEnd, gy]], 'ctrl'),
+            DD.wire(svg, [[bx, gy], [bx, 256], [330, 256], [330, gy], [346, gy]], 'ctrl')];
+    o.gdot = DD.dot(svg, bx, gy, 'ctrl');
+    o.gPath = ['M' + px + ',' + gy + 'H' + gEnd, 'M' + px + ',' + gy + 'H' + bx + 'V256H330V' + gy + 'H346'];
+    /* switch: a relay-like actuator driven by G, a lever pivoting at the top contact */
+    o.coil = DD.el('rect', { x: 346, y: gy - 11, width: 16, height: 22, rx: 3, 'class': 'coil' }, svg);
+    DD.wire(svg, [[362, gy], [X2 - 6, gy]], 'inside');
+    o.sw = [DD.wire(svg, [[X2, T + 4], [X2, cT]]), DD.wire(svg, [[X2, cB], [X2, B - 4]])];
+    o.lever = DD.el('line', { x1: X2, y1: cT, x2: X2, y2: cB, 'class': 'lever' }, svg);
+    o.lever.style.transformOrigin = X2 + 'px ' + cT + 'px';
+    DD.el('circle', { cx: X2, cy: cT, r: 3.5, 'class': 'contact' }, svg);
+    DD.el('circle', { cx: X2, cy: cB, r: 3.5, 'class': 'contact' }, svg);
+    DD.text(svg, X2, 274, p ? 'closed when G = 0' : 'closed when G = 1', 'lbl small');
+    term(X2, T, top); term(X2, B, bot);
+    o.cPath = ['M' + X1 + ',' + (T + 4) + 'V' + (B - 4), 'M' + X2 + ',' + (T + 4) + 'V' + (B - 4)];
+    o.pin = DD.pin(svg, px, gy, 'G', { ctrl: 1, onToggle: function (v) { setG(v); } });
+    return o;
+  }
+  /* draw the switch state: on = channel conducting */
+  function showPair(o, g, on) {
+    o.shown = on;
+    DD.setHi(o.ch, on); DD.setHi(o.dw, on); DD.setHi(o.sw, on); DD.setHi(o.lever, on);
+    DD.flow(o.dw, on && DD.reduceMotion); DD.flow(o.sw, on && DD.reduceMotion);
+    o.lever.style.transform = on ? 'none' : 'rotate(-32deg)';
+    o.coil.classList.toggle('hi', !!g);
+    if (!on) o.svg.querySelectorAll('.token.cur').forEach(function (t) { t.remove(); });
+  }
+  /* gate beads arrive, the switch flips, then charge beads keep flowing top → bottom while it is on */
+  async function animatePair(o, g, on) {
+    var my = ++o.gen;
+    await Promise.all(o.gPath.map(function (d) { return DD.token(o.svg, d, { value: g, ctrl: g, dur: 650 }); }));
+    if (my !== o.gen) return;
+    showPair(o, g, on);
+    if (on) flowLoop(o, my);
+  }
+  async function flowLoop(o, my) {
+    if (DD.reduceMotion) return;
+    await DD.sleep(250);
+    while (my === o.gen) {
+      o.cPath.forEach(function (d) { DD.token(o.svg, d, { dur: 1100, r: 5 }); o.svg.lastChild.classList.add('cur'); });
+      await DD.sleep(420);
+    }
+  }
+  function renderPair(o, g) {
+    var on = o.p ? 1 - g : g;
+    o.pin.set(g); DD.setHi(o.gw, g); DD.setHi(o.gdot, g); if (o.bub) DD.setHi(o.bub, g);
+    if (o.shown < 0) { showPair(o, g, on); if (on) flowLoop(o, o.gen); }
+    else if (on !== o.shown || o.coil.classList.contains('hi') !== !!g) animatePair(o, g, on);
+  }
+
+  /* ---------- silicon cross-section ----------
+     p = 0: NMOS (p substrate, n+ regions, electron channel); p = 1: PMOS (n substrate, p+ regions, holes). */
+  function xsec(svg, p) {
+    var L = 200, R = 360, S0 = 140, N = 16, o = { p: p, svg: svg, off: 0, k: 0, drift: 0, last: 0 };
+    var cX = 130, gX = 280, dX = 430;
+    DD.el('rect', { x: 20, y: S0, width: 520, height: 145, rx: 6, 'class': 'si' }, svg);
+    function well(x0, x1) {
+      DD.el('path', { d: 'M' + x0 + ',' + S0 + 'V172Q' + x0 + ',192 ' + (x0 + 20) + ',192H' + (x1 - 20) + 'Q' + x1 + ',192 ' + x1 + ',172V' + S0 + 'Z', 'class': 'dope' }, svg);
+    }
+    well(60, L); well(R, 500);
+    /* carriers that live in the source/drain regions */
+    function carrier(x, y, cls) {
+      return p ? DD.el('circle', { cx: x, cy: y, r: 3, 'class': 'hole' + (cls ? ' ' + cls : '') }, svg)
+               : DD.el('circle', { cx: x, cy: y, r: 2.8, 'class': 'el' + (cls ? ' ' + cls : '') }, svg);
+    }
+    [[78, 152], [96, 166], [112, 180], [168, 180], [184, 166], [74, 176], [188, 150]].forEach(function (q) {
+      carrier(q[0], q[1]); carrier(q[0] + 300, q[1]);
+    });
+    DD.text(svg, cX, 160, p ? 'p+' : 'n+', 'rg');
+    DD.text(svg, cX, 176, 'source', 'rg small');
+    DD.text(svg, dX, 160, p ? 'p+' : 'n+', 'rg');
+    DD.text(svg, dX, 176, 'drain', 'rg small');
+    /* majority carriers of the substrate (holes in p-type, electrons in n-type) */
+    o.maj = [];
+    [[44, 226], [86, 256], [110, 228], [170, 258], [230, 252], [330, 252], [400, 258], [450, 228], [486, 256], [520, 226], [60, 206], [500, 206]]
+      .forEach(function (q) { DD.el('circle', { cx: q[0], cy: q[1], r: p ? 2.4 : 3, 'class': 'maj' + (p ? ' dotm' : '') }, svg); });
+    /* the ones near the surface under the gate get pushed away as the gate charges up */
+    [[214, 152], [244, 164], [274, 150], [304, 166], [334, 154], [228, 180], [292, 182], [346, 178]].forEach(function (q) {
+      o.maj.push(DD.el('circle', { cx: q[0], cy: q[1], r: p ? 2.4 : 3, 'class': 'maj' + (p ? ' dotm' : '') }, svg));
+    });
+    DD.text(svg, 280, 276, p ? 'n-type substrate (n-well)' : 'p-type substrate (body)', 'rg small');
+    /* depletion region and channel */
+    o.depl = DD.el('rect', { x: L, y: S0, width: R - L, height: 0, 'class': 'depl' }, svg);
+    o.chan = DD.el('rect', { x: L - 4, y: S0, width: R - L + 8, height: 0, 'class': 'chan', opacity: 0 }, svg);
+    o.els = [];
+    for (var i = 0; i < N; i++) {
+      var e = carrier(0, 0); e.style.opacity = 0;
+      o.els.push({ e: e, f: (i * 7 % N) / N, dy: [3, 7, 5, 9, 4, 8][i % 6], show: (i * 5) % N });
+    }
+    o.chLab = DD.text(svg, 280, 210, 'no channel', 'rg small');
+    o.drLab = DD.text(svg, 280, 228, '', 'rg small');
+    /* oxide, gate, contacts and terminals */
+    DD.el('rect', { x: 186, y: 130, width: 188, height: 10, 'class': 'oxide' }, svg);
+    o.gate = DD.el('rect', { x: 192, y: 88, width: 176, height: 42, rx: 3, 'class': 'gate-el' }, svg);
+    DD.text(svg, gX, 114, 'gate', 'rg');
+    DD.text(svg, 412, 127, 'oxide', 'rg small', 'end');
+    DD.el('rect', { x: cX - 26, y: 132, width: 52, height: 8, rx: 1, 'class': 'metal' }, svg);
+    DD.el('rect', { x: dX - 26, y: 132, width: 52, height: 8, rx: 1, 'class': 'metal' }, svg);
+    o.sW = DD.wire(svg, [[cX, 132], [cX, 54]]);
+    o.gW = DD.wire(svg, [[gX, 88], [gX, 54]], 'ctrl');
+    o.dW = DD.wire(svg, [[dX, 132], [dX, 54]]);
+    function term(x, name) {
+      DD.el('circle', { cx: x, cy: 50, r: 4, 'class': 'term' }, svg);
+      DD.text(svg, x - 10, 40, name, 'lbl title', 'end');
+      return DD.text(svg, x + 10, 40, '', 'lbl small', 'start');
+    }
+    o.sT = term(cX, 'S'); o.gT = term(gX, 'G'); o.dT = term(dX, 'D');
+    o.sT.textContent = p ? 'VDD' : '0 V';
+    return o;
+  }
+  /* k: channel strength 0..1; dep: depletion 0..1; drift: carriers move S → D */
+  function showX(o, k, dep, drift) {
+    o.k = k; o.drift = drift && k > 0;
+    o.depl.setAttribute('height', (dep * 34).toFixed(1));
+    o.chan.setAttribute('height', k > 0 ? (3 + 8 * k).toFixed(1) : 0);
+    o.chan.setAttribute('opacity', k > 0 ? (0.18 + 0.3 * k).toFixed(2) : 0);
+    o.maj.forEach(function (m) { m.style.opacity = (1 - dep).toFixed(2); });
+    var n = Math.round(k * o.els.length);
+    o.els.forEach(function (c) { c.e.style.opacity = c.show < n ? 1 : 0; });
+    o.chLab.textContent = k > 0 ? (o.p ? 'channel of holes' : 'inversion channel (n-type)') : (dep > 0 ? 'depletion: holes pushed away, no channel yet' : 'no channel');
+    if (o.p && k === 0) o.chLab.textContent = 'no channel';
+    o.drLab.textContent = o.drift ? (o.p ? 'holes drift S → D' : 'electrons drift S → D, current flows D → S') : '';
+    placeEls(o);
+    DD.setHi(o.dW, o.p ? 0 : VD);
+    DD.setHi(o.sW, o.p ? 1 : 0);
+    syncDrift();
+  }
+  function placeEls(o) {
+    var L = 200, W = 160;
+    o.els.forEach(function (c) {
+      var f = (c.f + o.off) % 1;
+      c.e.setAttribute('cx', (L + 4 + f * (W - 8)).toFixed(1));
+      c.e.setAttribute('cy', (140 + Math.min(c.dy, 2 + 8 * o.k)).toFixed(1));
+    });
+  }
+  /* continuous drift: requestAnimationFrame when frames run, a timer otherwise (background tabs, headless) */
+  var drifting = [], raf = 0, iv = 0, lastT = 0;
+  function tick() {
+    var now = performance.now(), dt = Math.min(0.1, (now - (lastT || now)) / 1000);
+    lastT = now;
+    drifting.forEach(function (o) { o.off = (o.off + dt * (0.12 + 0.25 * o.k)) % 1; placeEls(o); });
+  }
+  function loop() { tick(); raf = requestAnimationFrame(loop); }
+  function syncDrift() {
+    drifting = [xn, xp].filter(function (o) { return o && o.drift; });
+    var want = drifting.length > 0 && !DD.reduceMotion;
+    if (want && !iv) { lastT = 0; raf = requestAnimationFrame(loop); iv = setInterval(function () { if (performance.now() - lastT > 120) tick(); }, 60); }
+    if (!want && iv) { cancelAnimationFrame(raf); clearInterval(iv); iv = 0; }
+  }
+
+  /* ---------- build ---------- */
+  var nb = pair($('blk'), 0), pb = pair($('pblk'), 1);
+  var xn = null, xp = null;
+  xn = xsec($('xs'), 0); xp = xsec($('pxs'), 1);
+  var setBG = DD.bitButton($('bg'), function () { return G; }, function (v) { setG(v); });
+  var slider = $('vg'), setVD = DD.swButton($('vds'), function () { return VD; }, function (v) { VD = v; render(); });
+  $('vtTick').style.left = (VT / VDD * 100) + '%';
+  slider.addEventListener('input', function () { setVG(+slider.value); });
+
+  function setG(v) { G = v ? 1 : 0; VG = G ? VDD : 0; render(); }
+  function setVG(x) { VG = x; G = VG >= VT ? 1 : 0; render(); }
+
+  function render() {
+    renderPair(nb, G); renderPair(pb, G);
+    setBG(G); setVD(VD);
+    $('bfn').textContent = G ? 'G = 1 → channel ON, D connected to S' : 'G = 0 → channel OFF, D and S disconnected';
+    $('pfn').textContent = G ? 'G = 1 → PMOS channel OFF, S and D disconnected' : 'G = 0 → PMOS channel ON, S connected to D';
+    /* NMOS cross-section follows the analog gate voltage */
+    slider.value = VG;
+    $('vgv').textContent = VG.toFixed(2) + ' V';
+    var k = VG > VT ? (VG - VT) / (VDD - VT) : 0, dep = Math.min(1, VG / VT);
+    xn.gate.style.setProperty('--g', (VG / VDD).toFixed(2));
+    xn.gT.textContent = VG.toFixed(2) + ' V';
+    xn.dT.textContent = VD ? '1.2 V' : '0 V';
+    DD.setHi(xn.gW, VG >= VT);
+    showX(xn, k, dep, VD);
+    $('xfn').textContent = VG < VT
+      ? 'VG = ' + VG.toFixed(2) + ' V < Vt → no channel, OFF'
+      : 'VG = ' + VG.toFixed(2) + ' V ≥ Vt → channel, ON';
+    $('xnote').innerHTML = VG < VT
+      ? (VG > 0 ? 'The positive gate pushes the substrate\'s holes away (dashed depletion region), but not yet enough electrons gather to connect source and drain.' : 'With the gate at 0 V the two n+ regions are separated by p-type silicon. No path, no current.')
+      : (VD ? 'Electrons enter from the source and drift through the channel to the drain. Current is defined the other way: <b>I<sub>D</sub> flows from D to S</b>.'
+            : 'A thin layer of electrons now connects the two n+ regions. Apply a drain voltage to make them move. Higher V<sub>G</sub> gives a thicker channel and more current.');
+    /* PMOS cross-section follows the logic level: gate at 0 → full hole channel */
+    xp.gate.style.setProperty('--g', G);
+    xp.gT.textContent = G ? '1.2 V' : '0 V';
+    xp.dT.textContent = '0 V';
+    DD.setHi(xp.gW, G);
+    showX(xp, G ? 0 : 1, G ? 0 : 1, 1);
+    /* comparison table */
+    var on = G ? 'n' : 'p';
+    $('cmp').querySelectorAll('[data-c]').forEach(function (c) { c.classList.toggle('on', c.dataset.c === on); });
+    $('nowLab').textContent = 'Right now (G = ' + G + ')';
+    $('nowN').textContent = G ? 'ON' : 'OFF'; $('nowP').textContent = G ? 'OFF' : 'ON';
+  }
+
+  var bplay = $('bplay');
+  bplay.addEventListener('click', async function () {
+    bplay.disabled = true;
+    for (var i = 0; i < 4; i++) { setG(1 - G); await DD.sleep(DD.reduceMotion ? 700 : 2200); }
+    bplay.disabled = false;
+  });
+  var sweep = $('sweep');
+  sweep.addEventListener('click', async function () {
+    sweep.disabled = true; VD = 1; setVD(1);
+    for (var v = 0; v <= VDD + 1e-9; v += 0.05) { setVG(Math.round(v * 100) / 100); await DD.sleep(110); }
+    sweep.disabled = false;
+  });
+  setVD(VD);
+  render();
+})();
+</script>
+</body>
+</html>

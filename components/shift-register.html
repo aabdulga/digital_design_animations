@@ -28,6 +28,21 @@
     <p>A 4-bit shift-right register. Four D flip-flops share one clock, and each flip-flop's D input is the previous flip-flop's Q. On every rising edge the whole word moves one position to the right: <code>shr_in</code> enters at Q3, and Q0 falls out as <code>shr_out</code>.</p>
   </header>
 
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 560 232" width="560" height="232" role="img"
+           aria-label="Shift register symbol: shr_in on the left, shr_out on the right, clk underneath, and four cells Q3 to Q0 inside, each with a parallel output lamp above."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>Think of a row of four seats. On every clock edge everybody moves one seat to the right: a new bit sits down at Q3 from shr_in, and the bit in Q0 leaves through shr_out.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button><button class="btn" id="bclk">Pulse clock</button></div>
+      <p>Animate shifts in the serial word from the controls below. Clock here or in the circuit below; both views share the same register.</p>
+    </div>
+  </section>
+
   <div class="top">
     <section class="panel scroll">
       <h2>4-bit shift-right register</h2>
@@ -140,6 +155,69 @@
 
   /* ---- HTML controls ---- */
   var setIn = DD.bitButton(document.getElementById('bin'), function () { return IN; }, function (v) { if (busy) return; IN = v; render(); });
+
+  /* ---- block view: the same register as one symbol with four cells ---- */
+  var blk = document.getElementById('blk');
+  var by = 100, cellX = [165, 225, 285, 345], cw = 50;
+  DD.block(blk, 140, 60, 280, 120);
+  DD.text(blk, 280, 162, 'SHIFT REGISTER', 'sym-name');
+  DD.el('polyline', { points: '157,180 165,169 173,180', 'class': 'clk-tri' }, blk);
+  var bClkW = DD.wire(blk, [[165, 214], [165, 180]], 'ctrl');
+  DD.text(blk, 175, 218, 'clk', 'lbl', 'start');
+  var bInW = DD.wire(blk, [[100, by], [140, by]]);
+  var bOutW = DD.wire(blk, [[420, by], [462, by]]);
+  var bOutLed = DD.led(blk, 471, by, 9, 'shr_out');
+  var bLink = [], bCell = [], bCellT = [], bTap = [], bLed = [];
+  for (var j = 0; j < 5; j++) {            /* internal links: in→Q3, Q3→Q2, ..., Q0→out */
+    var xa = j ? cellX[j - 1] + cw : 140, xb = j < 4 ? cellX[j] : 420;
+    bLink.push(DD.wire(blk, [[xa, by], [xb, by]], 'inside'));
+  }
+  cellX.forEach(function (x, i) {
+    bCell.push(DD.el('rect', { x: x, y: by - 22, width: cw, height: 44, rx: 3, 'class': 'box' }, blk));
+    bCellT.push(DD.text(blk, x + cw / 2, by + 7, '0', 'lbl val'));
+    bCellT[i].style.fontSize = '20px';
+    DD.text(blk, x + cw / 2, by + 38, 'Q' + (3 - i), 'port');
+    bTap.push(DD.wire(blk, [[x + cw / 2, by - 22], [x + cw / 2, 39]]));
+    bLed.push(DD.led(blk, x + cw / 2, 30, 9));
+  });
+  var bPin = DD.pin(blk, 100, by, 'shr_in', { onToggle: function (v) { if (busy) return; IN = v; render(); } });
+  /* bead paths: from each source to the centre of the cell it moves into */
+  var bPath = [0, 1, 2, 3, 4].map(function (j) {
+    var xa = j ? cellX[j - 1] + cw / 2 : 100, xb = j < 4 ? cellX[j] + cw / 2 : 462;
+    return 'M' + xa + ',' + by + 'H' + xb;
+  });
+  var gen = 0, animating = 0;
+  function showBlock(q) {
+    for (var i = 0; i < 4; i++) {
+      DD.setVal(bCellT[i], q[i]); bCellT[i].style.opacity = 1;
+      bCell[i].classList.toggle('hot', !!q[i]);
+      DD.setHi(bTap[i], q[i]); bLed[i].set(q[i]);
+    }
+    bLink.forEach(function (w) { w.setAttribute('class', 'wire inside'); });
+    DD.setHi(bOutW, q[3]); bOutLed.set(q[3]);
+    DD.setHi(bClkW, 0);
+  }
+  /* clock bead climbs to the edge, then every bit slides one cell right at once */
+  async function animateBlock(vals) {
+    var my = ++gen; animating = my;
+    showBlock(vals.slice(1));
+    DD.setHi(bClkW, 1);
+    await DD.token(blk, 'M165,214V180', { ctrl: 1, value: 1, dur: 200 });
+    if (my !== gen) return;
+    bLink.forEach(function (w, j) { w.setAttribute('class', 'wire flow' + (vals[j] ? ' hi' : '')); });
+    bCellT.forEach(function (t) { t.style.opacity = 0; });
+    await Promise.all(bPath.map(function (d, j) { return DD.token(blk, d, { value: vals[j], dur: 380 }); }));
+    if (my !== gen) return;
+    animating = 0; if (!busy) showBlock(Q);   /* if the edge has not landed yet, render() shows the new state */
+  }
+  function renderBlock() {
+    DD.setHi(bInW, IN); bPin.set(IN);
+    document.getElementById('bfn').textContent = 'Q3..Q0 = ' + Q.join('') + ', next ← ' + IN + ', out = ' + Q[3];
+    if (!animating) showBlock(Q);
+  }
+  document.getElementById('bclk').addEventListener('click', function () { pulseClock(); });
+  document.getElementById('bplay').addEventListener('click', function () { shiftWord(); });
+
   var tt = document.getElementById('tt'), tbody = tt.querySelector('tbody');
   var tim = new DD.Timing(document.getElementById('tim'));
 
@@ -147,6 +225,7 @@
     if (busy) return Promise.resolve();
     busy = true;
     var vals = [IN].concat(Q);
+    animateBlock(vals);
     DD.setHi(W.clk, 1);
     DD.restart(edge, 'flash-once');
     chips.forEach(function (c, i) {
@@ -197,6 +276,7 @@
       rows.push({ label: 'Q' + (3 - i), kind: 'bit', values: DD.Timing.registered(all.map(function (r) { return r.q[i]; }), N) });
     })(i);
     rows.push({ label: 'shr_out', kind: 'bit', values: DD.Timing.registered(all.map(function (r) { return r.q[3]; }), N) });
+    renderBlock();
     tim.render({ rows: rows, cycles: N, edges: hist.length, pending: true, x0: 70 });
     /* empty grid columns up to 10 cycles, so the diagram has room to grow into */
     var ts = tim.svg, H = +ts.getAttribute('height');
@@ -204,20 +284,21 @@
   }
 
   document.getElementById('clk').addEventListener('click', function () { pulseClock(); });
-  document.getElementById('reset').addEventListener('click', function () { if (busy) return; Q = [0, 0, 0, 0]; IN = 0; hist = []; render(); });
-  var playBtn = document.getElementById('play');
-  playBtn.addEventListener('click', async function () {
-    if (busy) return;
+  document.getElementById('reset').addEventListener('click', function () { if (busy) return; Q = [0, 0, 0, 0]; IN = 0; hist = []; gen++; animating = 0; render(); });
+  var playBtns = [document.getElementById('play'), document.getElementById('bplay')], playing = false;
+  async function shiftWord() {
+    if (busy || playing) return;
     var w = document.getElementById('wordin').value.replace(/[^01]/g, '');
     if (!w) return;
-    playBtn.disabled = true;
+    playing = true; playBtns.forEach(function (b) { b.disabled = true; });
     for (var k = w.length - 1; k >= 0; k--) {      /* LSB first */
       IN = +w[k]; render();
       await DD.sleep(500); await pulseClock(); await DD.sleep(250);
     }
     IN = 0; render();
-    playBtn.disabled = false;
-  });
+    playing = false; playBtns.forEach(function (b) { b.disabled = false; });
+  }
+  playBtns[0].addEventListener('click', shiftWord);
   render();
 })();
 </script>

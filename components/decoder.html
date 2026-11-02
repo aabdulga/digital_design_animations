@@ -16,6 +16,21 @@
     <p>A decoder turns a binary number into a single active line. The two address inputs A1 A0 pick one of the four outputs D0 to D3 and drive it to 1; the other three stay at 0. Each AND gate recognises exactly one input combination, and the enable EN can switch all of them off at once.</p>
   </header>
 
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="50 0 380 290" width="380" height="290" role="img"
+           aria-label="Decoder symbol: address inputs A1 and A0 on the left, enable EN underneath, four outputs D0 to D3 on the right, each to a lamp. A line inside shows which output the address points at."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>Think of the address as a pointer. The 2-bit number A1 A0 points at one of the four output lines, and only that line goes to 1: the outputs are one-hot. With EN = 0 the pointer is switched off and every output stays 0.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Flip any input here or in the gate-level circuit below; both views share the same signals.</p>
+    </div>
+  </section>
+
   <div class="top">
     <section class="panel scroll">
       <h2>Gate-level circuit</h2>
@@ -127,6 +142,73 @@
     sweepBtn.disabled = false;
   });
 
+  /* ---- block view: the same signals on a single decoder symbol ---- */
+  var blk = document.getElementById('blk');
+  DD.block(blk, 160, 20, 150, 210);
+  DD.text(blk, 235, 44, '2:4 DECODER', 'sym-name');
+  var HUB = [205, 125], bAY = [95, 155];          /* A1, A0 rows; internal "pointer" hub */
+  var bAW = [], bAPin = [], bAPath = [];
+  [['A1', 0], ['A0', 1]].forEach(function (p) {
+    var j = p[1], yj = bAY[j];
+    bAW[j] = DD.wire(blk, [[110, yj], [160, yj]]);
+    DD.text(blk, 166, yj - 5, p[0], 'port', 'start');
+    DD.wire(blk, [[160, yj], [185, yj], HUB], 'inside');
+    bAPath[j] = 'M110,' + yj + 'H185L' + HUB.join(',');
+    bAPin[j] = DD.pin(blk, 110, yj, p[0], { onToggle: function (v) { if (j) A0 = v; else A1 = v; render(); } });
+  });
+  var bENW = DD.wire(blk, [[235, 258], [235, 230]], 'ctrl');
+  DD.text(blk, 235, 223, 'EN', 'port');
+  var bENPath = 'M235,258V230';
+  var bENPin = DD.pin(blk, 247, 270, 'EN', { ctrl: 1, onToggle: function (v) { EN = v; render(); } });
+  var bInside = [], bOut = [], bLed = [], bPath = [];
+  for (k = 0; k < 4; k++) {
+    var yk = 20 + 210 * (k + 1) / 5;
+    bInside[k] = DD.wire(blk, [HUB, [285, yk], [310, yk]], 'inside');
+    DD.text(blk, 304, yk - 5, 'D' + k, 'port', 'end');
+    bOut[k] = DD.wire(blk, [[310, yk], [370, yk]]);
+    bLed[k] = DD.led(blk, 381, yk, 11, 'D' + k);
+    bPath[k] = 'M' + HUB.join(',') + 'L285,' + yk + 'H370';   /* hub → chosen output → lamp */
+  }
+  var shown = { a: -1, en: -1 }, gen = 0;
+  /* lit: whether the lamps already show the new result */
+  function showBlock(a, en, lit) {
+    shown.a = a; shown.en = en;
+    for (var k = 0; k < 4; k++) {
+      var on = k === a, d = lit && en && on ? 1 : 0;
+      bInside[k].setAttribute('class', on ? 'wire' + (en ? ' hi' : '') + ' flow' : 'wire inside');
+      DD.setHi(bOut[k], d); bLed[k].set(d);
+    }
+  }
+  /* address and enable beads enter, the pointer moves, then one bead runs to the chosen lamp */
+  async function animateBlock(a, en, aChanged, enChanged) {
+    var my = ++gen, beads = [];
+    if (aChanged) {
+      beads.push(DD.token(blk, bAPath[0], { value: A1, dur: 450 }));
+      beads.push(DD.token(blk, bAPath[1], { value: A0, dur: 450 }));
+    }
+    if (enChanged) beads.push(DD.token(blk, bENPath, { value: en, ctrl: en, dur: 450 }));
+    await Promise.all(beads);
+    if (my !== gen) return;
+    showBlock(a, en, false);
+    await DD.token(blk, bPath[a], { value: en, dur: 800 });
+    if (my === gen) showBlock(a, en, true);
+  }
+  function renderBlock(a) {
+    DD.setHi(bAW[0], A1); DD.setHi(bAW[1], A0); bAPin[0].set(A1); bAPin[1].set(A0);
+    DD.setHi(bENW, EN); bENPin.set(EN);
+    document.getElementById('bfn').textContent = EN
+      ? 'A1 A0 = ' + A1 + A0 + ' = ' + a + ' → D' + a + ' = 1, others 0'
+      : 'EN = 0 → all outputs 0';
+    if (shown.a < 0) showBlock(a, EN, true);
+    else if (a !== shown.a || EN !== shown.en) animateBlock(a, EN, a !== shown.a, EN !== shown.en);
+  }
+  var bPlay = document.getElementById('bplay');
+  bPlay.addEventListener('click', async function () {
+    bPlay.disabled = true;
+    for (var i = 0; i < 4; i++) { EN = 1; A1 = i >> 1; A0 = i & 1; render(); await DD.sleep(DD.reduceMotion ? 700 : 1500); }
+    bPlay.disabled = false;
+  });
+
   function render() {
     var a = A1 * 2 + A0;
     var v = { A1: A1, nA1: 1 - A1, A0: A0, nA0: 1 - A0, EN: EN };
@@ -142,6 +224,7 @@
     document.getElementById('fn').innerHTML = EN
       ? 'EN=1, A = ' + A1 + A0 + ' → D' + a + ' = 1 <span style="white-space:nowrap">(one-hot)</span>'
       : 'EN=0 → D3..D0 = 0000 (disabled)';
+    renderBlock(a);
   }
   render();
 })();

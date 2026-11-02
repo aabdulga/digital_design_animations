@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CMOS Logic Gates</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/circuit.js"></script>
+<style>
+/* Page-specific: transistor symbols, supply rails, the conducting-path glow and the output charge gauge.
+   Colors come only from the shared tokens in style.css. */
+.sch .ch { fill: none; stroke: var(--wire); stroke-width: 5; stroke-linecap: round; transition: stroke .2s; }
+.sch .ch.hi { stroke: var(--hi); }
+.sch .plate { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.sch .rail { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.sch .glow { fill: none; stroke: var(--hi-soft); stroke-width: 13; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transition: opacity .25s; }
+.sch .glow.on { opacity: 1; }
+.sch .gauge { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+.sch .lvl { fill: var(--hi); transform-box: fill-box; transform-origin: 50% 100%; transition: transform .9s ease; }
+.sch .rb { font-weight: 600; }
+
+/* gate selector: segmented buttons */
+.seg { justify-self: start; display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button {
+  font: 600 .85rem var(--mono); border: 0; border-right: 1px solid var(--line); background: var(--panel);
+  color: var(--fg); padding: 7px 14px; cursor: pointer;
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { color: var(--hi); }
+.seg button[aria-pressed="true"] { background: var(--hi-soft); color: var(--hi); }
+.seg button:focus-visible { outline: 2px solid var(--hi); outline-offset: -2px; }
+.blockview .pick-gate { display: grid; gap: 10px; margin-bottom: 8px; }
+#pnote { min-height: 2.6em; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <a class="backlink" href="../index.html#cmos-gates">← All components</a>
+    <p class="kicker">Foundations</p>
+    <h1>Logic Gates from Transistors</h1>
+    <p>A CMOS gate has two transistor networks. A pull-up network of PMOS transistors can connect the output to V<sub>DD</sub> (logic 1); a pull-down network of NMOS transistors can connect it to GND (logic 0). For every input combination exactly one of them conducts.</p>
+  </header>
+
+  <section class="panel blockview">
+    <div>
+      <div class="pick-gate">
+        <h2 style="margin:0">Gate</h2>
+        <div class="seg" id="seg" role="group" aria-label="Choose a gate">
+          <button data-t="not">NOT</button><button data-t="nand">NAND</button><button data-t="nor">NOR</button><button data-t="and">AND</button><button data-t="or">OR</button>
+        </div>
+      </div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 380 200" width="380" height="200" role="img"
+           aria-label="The selected logic gate drawn as its standard symbol with its inputs and output lamp Y."></svg>
+    </div>
+    <div class="say">
+      <h2>Truth table</h2>
+      <table class="tt" id="tt"><thead></thead><tbody></tbody></table>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Click a row, a pin, or an input button below. The block view and the transistor circuit share the same inputs.</p>
+    </div>
+  </section>
+
+  <div class="top">
+    <section class="panel scroll">
+      <h2>Transistor level</h2>
+      <svg id="sch" class="sch" viewBox="0 0 690 360" width="690" height="360" role="img"
+           aria-label="CMOS transistor circuit of the selected gate between a VDD rail and a GND rail, with live input values and the conducting path highlighted."></svg>
+      <p class="note" id="pnote"></p>
+      <div class="legend">
+        <span><i class="lo"></i>logic 0</span><span><i class="hi"></i>logic 1, conducting channel</span>
+        <span>Shaded: the conducting path. Click an input square to flip it.</span>
+      </div>
+    </section>
+
+    <section class="panel ctl">
+      <h2>Inputs</h2>
+      <div class="row">
+        <button class="bit" id="ba"><small>A</small><span class="v">0</span></button>
+        <button class="bit" id="bb"><small>B</small><span class="v">0</span></button>
+      </div>
+      <div class="fn" id="fn"></div>
+      <div class="row"><button class="btn" id="step">Next input ⏵</button></div>
+      <p class="note" style="margin:0" id="count"></p>
+      <p class="note" style="margin:0">A PMOS conducts when its gate is 0, an NMOS when its gate is 1. Watch the gate beads switch the transistors first; then charge flows along the shaded path, filling the output node from V<sub>DD</sub> or draining it to GND.</p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div><h3>Complementary networks</h3><p>The pull-down network is the dual of the pull-up: transistors in series in one are in parallel in the other. NAND has PMOS in parallel and NMOS in series; NOR is the reverse. So whenever one network conducts, the other is open, and no current flows from V<sub>DD</sub> to GND at rest.</p></div>
+    <div><h3>NAND and NOR come first</h3><p>A single CMOS stage always inverts: a 1 on a gate can only turn on an NMOS, which pulls down. So NAND and NOR are the natural gates. AND and OR need an extra inverter: 2 transistors for NOT, 4 for NAND and NOR, 6 for AND and OR.</p></div>
+    <div><h3>Where these appear next</h3><p>The AND and OR gates in the multiplexer, decoder and adders on the next pages are built exactly this way: a NAND or NOR stage followed by an inverter, or folded into larger NAND-NAND logic by the chip designer.</p></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var TYPE = 'nand', A = 0, B = 0;
+  var NAMES = { not: 'NOT', nand: 'NAND', nor: 'NOR', and: 'AND', or: 'OR' };
+  var COUNT = { not: 2, nand: 4, nor: 4, and: 6, or: 6 };
+
+  /* ---------- logic: which transistor conducts, and the node values ---------- */
+  function evaluate(t, a, b) {
+    var on = { PA: 1 - a, NA: a }, v = { A: a, B: b };
+    if (t === 'not') { v.Y = 1 - a; return { on: on, v: v }; }
+    on.PB = 1 - b; on.NB = b;
+    var first = (t === 'nand' || t === 'and') ? 1 - (a & b) : 1 - (a | b);
+    if (t === 'nand' || t === 'nor') { v.Y = first; return { on: on, v: v }; }
+    v.X = first; on.IP = 1 - first; on.IN = first; v.Y = 1 - first;
+    return { on: on, v: v };
+  }
+
+  /* ---------- transistor-level schematic ---------- */
+  var svg = $('sch'), Lay, T, N, stages, gauges, led, valT, disp, gen = 0;
+  function reg(name, e) { (N[name] = N[name] || []).push(e); return e; }
+  function wire(name, d) { var w = DD.wire(Lay.w, d); return name ? reg(name, w) : w; }
+  function dot(name, x, y) { return reg(name, DD.dot(Lay.w, x, y)); }
+  function rail(y, x1, x2, name, right) {
+    DD.el('path', { d: 'M' + x1 + ',' + y + 'H' + x2, 'class': 'rail' }, Lay.w);
+    DD.text(Lay.t, right ? x2 + 6 : x1 - 6, y + 4, name, 'lbl rb', right ? 'start' : 'end');
+  }
+  /* mos(): drain/source terminals at (x, y) and (x, y + 50), channel between, gate lead on side 'L' or 'R'.
+     path: the gate wire from the input pin (or the X bus) to this gate; a bead travels along it. */
+  function mos(id, x, y, p, sig, side, path, name) {
+    DD.wire(Lay.w, 'M' + x + ',' + y + 'V' + (y + 12) + 'M' + x + ',' + (y + 38) + 'V' + (y + 50));
+    var ch = DD.el('path', { d: 'M' + x + ',' + (y + 12) + 'V' + (y + 38), 'class': 'ch' }, Lay.g);
+    var s = side === 'L' ? -1 : 1, bub = null;
+    DD.el('path', { d: 'M' + (x + 8 * s) + ',' + (y + 14) + 'V' + (y + 36), 'class': 'plate' }, Lay.g);
+    if (p) bub = reg(sig, DD.el('circle', { cx: x + 13 * s, cy: y + 25, r: 4.5, 'class': 'bubble' }, Lay.g));
+    wire(sig, path);
+    DD.text(Lay.t, x - 9 * s, y + 29, name, 'lbl small', side === 'L' ? 'start' : 'end');
+    T[id] = { ch: ch, sig: sig, path: path };
+  }
+  function lead(x, p, side) { return side === 'L' ? x - (p ? 17.5 : 8) : x + (p ? 17.5 : 8); }
+  /* output node: a load capacitor to ground with a charge gauge, then the output lamp */
+  function load(n, xc, ny) {
+    dot(n, xc, ny);
+    wire(n, 'M' + xc + ',' + ny + 'V' + (ny + 30));
+    DD.el('path', { d: 'M' + (xc - 12) + ',' + (ny + 30) + 'H' + (xc + 12) + 'M' + (xc - 12) + ',' + (ny + 37) + 'H' + (xc + 12), 'class': 'plate' }, Lay.g);
+    DD.wire(Lay.w, 'M' + xc + ',' + (ny + 37) + 'V' + (ny + 52));
+    DD.el('path', { d: 'M' + (xc - 10) + ',' + (ny + 52) + 'H' + (xc + 10) + 'M' + (xc - 6) + ',' + (ny + 57) + 'H' + (xc + 6) + 'M' + (xc - 2) + ',' + (ny + 62) + 'H' + (xc + 2), 'class': 'rail' }, Lay.g);
+    DD.text(Lay.t, xc - 16, ny + 38, 'C', 'lbl small', 'end');
+    DD.el('rect', { x: xc + 24, y: ny + 16, width: 12, height: 36, rx: 2, 'class': 'gauge' }, Lay.g);
+    gauges[n] = DD.el('rect', { x: xc + 25.5, y: ny + 17.5, width: 9, height: 33, rx: 1, 'class': 'lvl' }, Lay.g);
+    DD.text(Lay.t, xc + 30, ny + 66, 'charge', 'lbl small');
+    wire(n, 'M' + xc + ',' + ny + 'H' + (xc + 80));
+    led = DD.led(Lay.g, xc + 93, ny, 13, 'Y');
+    valT[n] = { el: DD.text(Lay.t, xc + 46, ny - 8, '', 'lbl val'), pre: n + ' = ' };
+  }
+  function route(list, need, d) {
+    list.push({ need: need, d: d, glow: DD.el('path', { d: d, 'class': 'glow' }, Lay.bg) });
+  }
+
+  /* first stage. NAND: PMOS in parallel, NMOS in series. NOR: PMOS in series, NMOS in parallel.
+     n: name of its output node ('Y' alone, 'X' when an inverter follows); end: x where that node is tapped. */
+  function nandStage(n, end) {
+    var st = { node: n, up: [], dn: [], trs: ['PA', 'PB', 'NA', 'NB'] }, ny = 150;
+    DD.wire(Lay.w, 'M250,40V70M350,40V70');
+    mos('PA', 250, 70, 1, 'A', 'L', 'M176,150H200V95H' + lead(250, 1, 'L'), 'PA');
+    mos('PB', 350, 70, 1, 'B', 'R', 'M80,265H110V8H400V95H' + lead(350, 1, 'R'), 'PB');
+    mos('NA', 250, 180, 0, 'A', 'L', 'M176,150H200V205H' + lead(250, 0, 'L'), 'NA');
+    DD.wire(Lay.w, 'M250,230V240');
+    mos('NB', 250, 240, 0, 'B', 'L', 'M80,265H' + lead(250, 0, 'L'), 'NB');
+    DD.wire(Lay.w, 'M250,290V320');
+    wire(n, 'M250,120V180'); wire(n, 'M350,120V150'); wire(n, 'M250,150H' + end);
+    dot(n, 250, ny); dot(n, 350, ny); dot('A', 200, 150); dot('B', 110, 265);
+    route(st.up, ['PA'], 'M250,40V150H' + end);
+    route(st.up, ['PB'], 'M350,40V150H' + end);
+    route(st.dn, ['NA', 'NB'], 'M' + end + ',150H250V320');
+    rail(40, 230, 370, 'VDD'); rail(320, 230, n === 'X' ? 500 : 370, 'GND');
+    return st;
+  }
+  function norStage(n, end) {
+    var st = { node: n, up: [], dn: [], trs: ['PA', 'PB', 'NA', 'NB'] }, ny = 210;
+    DD.wire(Lay.w, 'M250,40V70');
+    mos('PB', 250, 70, 1, 'B', 'L', 'M80,95H' + lead(250, 1, 'L'), 'PB');
+    DD.wire(Lay.w, 'M250,120V130');
+    mos('PA', 250, 130, 1, 'A', 'L', 'M176,210H200V155H' + lead(250, 1, 'L'), 'PA');
+    mos('NA', 250, 240, 0, 'A', 'L', 'M176,210H200V265H' + lead(250, 0, 'L'), 'NA');
+    mos('NB', 350, 240, 0, 'B', 'R', 'M80,95H110V344H400V265H' + lead(350, 0, 'R'), 'NB');
+    DD.wire(Lay.w, 'M250,290V320M350,290V320');
+    wire(n, 'M250,180V240'); wire(n, 'M350,210V240'); wire(n, 'M250,210H' + end);
+    dot(n, 250, ny); dot(n, 350, ny); dot('A', 200, 210); dot('B', 110, 95);
+    route(st.up, ['PB', 'PA'], 'M250,40V210H' + end);
+    route(st.dn, ['NA'], 'M' + end + ',210H250V320');
+    route(st.dn, ['NB'], 'M' + end + ',210H350V320');
+    rail(40, 230, n === 'X' ? 500 : 370, 'VDD'); rail(320, 230, 370, 'GND');
+    return st;
+  }
+  /* inverter on node X, gate bus at x = 440, transistors at x = 480 */
+  function inverter(ny, pTop) {
+    var st = { node: 'Y', up: [], dn: [], trs: ['IP', 'IN'] }, nTop = ny + 30;
+    DD.wire(Lay.w, 'M480,40V' + pTop + 'M480,' + (nTop + 50) + 'V320');
+    mos('IP', 480, pTop, 1, 'X', 'L', 'M440,' + ny + 'V' + (pTop + 25) + 'H' + lead(480, 1, 'L'), 'P');
+    mos('IN', 480, nTop, 0, 'X', 'L', 'M440,' + ny + 'V' + (nTop + 25) + 'H' + lead(480, 0, 'L'), 'N');
+    wire('Y', 'M480,' + (pTop + 50) + 'V' + nTop); wire('Y', 'M480,' + ny + 'H560');
+    dot('X', 440, ny); dot('Y', 480, ny);
+    route(st.up, ['IP'], 'M480,40V' + ny + 'H560');
+    route(st.dn, ['IN'], 'M560,' + ny + 'H480V320');
+    DD.text(Lay.t, 460, 30, 'INVERTER', 'lbl name');
+    valT.X = { el: DD.text(Lay.t, 434, ny - 8, '', 'lbl val', 'end'), pre: 'X = ' };
+    return st;
+  }
+
+  function build() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    Lay = { bg: DD.el('g', null, svg), w: DD.el('g', null, svg), g: DD.el('g', null, svg), t: DD.el('g', null, svg) };
+    T = {}; N = {}; stages = []; gauges = {}; valT = {};
+    var W, H, up, dn, ny, X0 = 0;
+    if (TYPE === 'not') {
+      ny = 150;
+      var st = { node: 'Y', up: [], dn: [], trs: ['PA', 'NA'] };
+      DD.wire(Lay.w, 'M250,40V70M250,230V260');
+      mos('PA', 250, 70, 1, 'A', 'L', 'M176,150H200V95H' + lead(250, 1, 'L'), 'PA');
+      mos('NA', 250, 180, 0, 'A', 'L', 'M176,150H200V205H' + lead(250, 0, 'L'), 'NA');
+      wire('Y', 'M250,120V180'); wire('Y', 'M250,150H340'); dot('Y', 250, 150); dot('A', 200, 150);
+      route(st.up, ['PA'], 'M250,40V150H340');
+      route(st.dn, ['NA'], 'M340,150H250V260');
+      rail(40, 230, 290, 'VDD'); rail(260, 230, 290, 'GND');
+      stages.push(st); load('Y', 340, 150);
+      X0 = 120; W = 470; H = 285; up = [460, 95]; dn = [460, 240];
+    } else if (TYPE === 'nand' || TYPE === 'and') {
+      ny = 150;
+      if (TYPE === 'nand') { stages.push(nandStage('Y', 440)); load('Y', 440, ny); W = 570; }
+      else {
+        stages.push(nandStage('X', 440)); stages.push(inverter(ny, 70));
+        rail(40, 420, 500, 'VDD', 1); load('Y', 560, ny); W = 690;
+        DD.text(Lay.t, 300, 30, 'NAND', 'lbl name');
+      }
+      H = 345; up = [W - 10, 95]; dn = [W - 10, 265];
+    } else {
+      ny = 210;
+      if (TYPE === 'nor') { stages.push(norStage('Y', 440)); load('Y', 440, ny); W = 570; }
+      else {
+        stages.push(norStage('X', 440)); stages.push(inverter(ny, 130));
+        rail(320, 420, 500, 'GND', 1); load('Y', 560, ny); W = 690;
+        DD.text(Lay.t, 300, 30, 'NOR', 'lbl name');
+      }
+      H = 360; up = [W - 10, 125]; dn = [W - 10, 300];
+    }
+    DD.text(Lay.t, up[0], up[1] + 4, 'PULL-UP · PMOS', 'lbl name', 'end');
+    DD.text(Lay.t, dn[0], dn[1] + 4, 'PULL-DOWN · NMOS', 'lbl name', 'end');
+    /* input pins */
+    pins = {};
+    pins.A = DD.pin(Lay.t, 176, ny, 'A', { onToggle: function (v) { A = v; render(); } });
+    if (TYPE !== 'not') pins.B = DD.pin(Lay.t, 80, TYPE === 'nor' || TYPE === 'or' ? 95 : 265, 'B', { onToggle: function (v) { B = v; render(); } });
+    svg.setAttribute('viewBox', X0 + ' 0 ' + (W - X0) + ' ' + H); svg.setAttribute('width', W - X0); svg.setAttribute('height', H);
+    /* show the current state at once, no animation */
+    var e = evaluate(TYPE, A, B);
+    disp = { on: Object.assign({}, e.on), v: Object.assign({}, e.v), lvl: { Y: e.v.Y }, led: e.v.Y, inA: A, inB: B };
+    paint();
+  }
+  var pins = {};
+
+  function active(r) { return r.need.every(function (id) { return disp.on[id]; }); }
+  function paint() {
+    var v = { A: A, B: B, X: disp.v.X, Y: disp.v.Y };
+    for (var n in N) DD.setHi(N[n], v[n]);
+    for (var id in T) DD.setHi(T[id].ch, disp.on[id]);
+    stages.forEach(function (st) { st.up.concat(st.dn).forEach(function (r) { r.glow.classList.toggle('on', active(r)); }); });
+    for (n in gauges) gauges[n].style.transform = 'scaleY(' + (disp.lvl[n] ? 1 : 0.04) + ')';
+    for (n in valT) DD.setVal(valT[n].el, disp.v[n], valT[n].pre);
+    led.set(disp.led);
+    pins.A.set(A); if (pins.B) pins.B.set(B);
+    $('pnote').innerHTML = stages.map(function (st) {
+      var u = st.up.some(active), d = st.dn.some(active);
+      return (stages.length > 1 ? (st.node === 'X' ? NAMES[TYPE === 'and' ? 'nand' : 'nor'] + ' stage: ' : 'inverter: ') : '') +
+        'pull-up <b>' + (u ? 'ON' : 'OFF') + '</b>, pull-down <b>' + (d ? 'ON' : 'OFF') + '</b> → ' + st.node + ' = <b>' + disp.v[st.node] + '</b>';
+    }).join('<br>');
+  }
+
+  /* inputs switch the transistors (gate beads), then charge flows along the conducting path into or out of the node,
+     then the next stage, then the lamp. A newer change cancels an older animation. */
+  async function animate() {
+    var my = ++gen, tgt = evaluate(TYPE, A, B);
+    for (var s = 0; s < stages.length; s++) {
+      var st = stages[s], beads = [];
+      st.trs.forEach(function (id) {
+        if (disp.on[id] === tgt.on[id]) return;
+        var gv = T[id].sig === 'X' ? disp.v.X : T[id].sig === 'A' ? A : B;
+        beads.push(DD.token(svg, T[id].path, { value: gv, dur: 600 }));
+      });
+      if (beads.length) {
+        await Promise.all(beads); if (my !== gen) return;
+        st.trs.forEach(function (id) { disp.on[id] = tgt.on[id]; }); paint();
+        await DD.sleep(250); if (my !== gen) return;
+      }
+      var n = st.node, nv = tgt.v[n];
+      if (disp.v[n] !== nv) {
+        var paths = (nv ? st.up : st.dn).filter(active).map(function (r) { return r.d; });
+        if (n in gauges) { disp.lvl[n] = nv; paint(); }
+        var flows = [];
+        for (var k = 0; k < 3; k++) {
+          paths.forEach(function (d) { flows.push(DD.token(svg, d, { dur: 900, r: 5 })); });
+          await DD.sleep(170); if (my !== gen) return;
+        }
+        await Promise.all(flows); if (my !== gen) return;
+        disp.v[n] = nv; paint();
+        await DD.sleep(150); if (my !== gen) return;
+      }
+    }
+    disp.led = tgt.v.Y; disp.lvl.Y = tgt.v.Y; paint();
+  }
+
+  /* ---------- block view ---------- */
+  var blk = $('blk'), bG, bW = {}, bPaths = {}, bOut, bOutPath, bLed, bVal, bPins = {}, bShown = -1, bgen = 0;
+  function buildBlock() {
+    while (blk.firstChild) blk.removeChild(blk.firstChild);
+    var two = TYPE !== 'not', gy = two ? 70 : 78, gh = two ? 60 : 44, gw = two ? 84 : 64;
+    bG = DD.gate(blk, TYPE, 170, gy, { h: gh, w: gw });
+    DD.text(blk, 170 + gw / 2 - (two ? 4 : 10), gy + gh + 26, NAMES[TYPE], 'sym-name');
+    bW = {}; bPaths = {}; bPins = {};
+    if (two) {
+      bPaths.A = 'M80,70H130V' + bG.ins[0][1] + 'H' + bG.ins[0][0];
+      bPaths.B = 'M80,130H130V' + bG.ins[1][1] + 'H' + bG.ins[1][0];
+      bW.A = DD.wire(blk, bPaths.A); bW.B = DD.wire(blk, bPaths.B);
+      bPins.A = DD.pin(blk, 80, 70, 'A', { onToggle: function (v) { A = v; render(); } });
+      bPins.B = DD.pin(blk, 80, 130, 'B', { onToggle: function (v) { B = v; render(); } });
+    } else {
+      bPaths.A = 'M80,100H' + bG.ins[0][0];
+      bW.A = DD.wire(blk, bPaths.A);
+      bPins.A = DD.pin(blk, 80, 100, 'A', { onToggle: function (v) { A = v; render(); } });
+    }
+    bOutPath = 'M' + bG.out[0] + ',100H307';
+    bOut = DD.wire(blk, bOutPath);
+    bLed = DD.led(blk, 320, 100, 13, 'Y');
+    bVal = DD.text(blk, 284, 92, '', 'lbl val');
+    bShown = -1;
+  }
+  function showBlock(y) { bShown = y; bG.set(y); DD.setHi(bOut, y); bLed.set(y); DD.setVal(bVal, y); }
+  async function animateBlock(y, changed) {
+    var my = ++bgen;
+    await Promise.all(changed.map(function (k) { return DD.token(blk, bPaths[k], { value: k === 'A' ? A : B, dur: 500 }); }));
+    if (my !== bgen) return;
+    bG.flash();
+    await DD.token(blk, bOutPath, { value: y, dur: 500 });
+    if (my === bgen) showBlock(y);
+  }
+  var bLast = {};
+  function renderBlock(y) {
+    DD.setHi(bW.A, A); bPins.A.set(A);
+    if (bW.B) { DD.setHi(bW.B, B); bPins.B.set(B); }
+    var changed = ['A', 'B'].filter(function (k) { return bW[k] && bLast[k] !== undefined && bLast[k] !== (k === 'A' ? A : B); });
+    bLast = { A: A, B: B };
+    if (bShown < 0) showBlock(y);
+    else if (changed.length) animateBlock(y, changed);
+  }
+
+  /* ---------- truth table and controls ---------- */
+  var tt = $('tt');
+  function buildTable() {
+    var two = TYPE !== 'not';
+    tt.tHead.innerHTML = two ? '<tr><th>A</th><th>B</th><th class="sep">Y</th></tr>' : '<tr><th>A</th><th class="sep">Y</th></tr>';
+    var rows = '', n = two ? 4 : 2;
+    for (var k = 0; k < n; k++) {
+      var a = two ? k >> 1 : k, b = k & 1, y = evaluate(TYPE, a, two ? b : 0).v.Y;
+      rows += '<tr class="pick" data-k="' + k + '"><td>' + a + '</td>' + (two ? '<td>' + b + '</td>' : '') + '<td class="sep ' + (y ? 'one' : 'zero') + '">' + y + '</td></tr>';
+    }
+    tt.tBodies[0].innerHTML = rows;
+    tt.tBodies[0].querySelectorAll('tr').forEach(function (tr) {
+      tr.addEventListener('click', function () { var k = +tr.dataset.k; if (two) { A = k >> 1; B = k & 1; } else A = k; render(); });
+    });
+  }
+  var setA = DD.bitButton($('ba'), function () { return A; }, function (v) { A = v; render(); });
+  var setB = DD.bitButton($('bb'), function () { return B; }, function (v) { B = v; render(); });
+  function nextInput() {
+    if (TYPE === 'not') A = 1 - A;
+    else { var k = (A * 2 + B + 1) & 3; A = k >> 1; B = k & 1; }
+    render();
+  }
+  $('step').addEventListener('click', nextInput);
+  var bplay = $('bplay');
+  bplay.addEventListener('click', async function () {
+    bplay.disabled = true;
+    A = 0; B = 0; render();
+    var n = TYPE === 'not' ? 2 : 4;
+    for (var i = 1; i < n + 1; i++) {
+      await DD.sleep(DD.reduceMotion ? 800 : (TYPE === 'and' || TYPE === 'or' ? 4200 : 3000));
+      if (i < n) nextInput();
+    }
+    bplay.disabled = false;
+  });
+  document.querySelectorAll('#seg button').forEach(function (b) {
+    b.addEventListener('click', function () { setType(b.dataset.t); });
+  });
+  function setType(t) {
+    TYPE = t; gen++; bgen++;
+    if (t === 'not') B = 0;
+    document.querySelectorAll('#seg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.t === t ? 'true' : 'false'); });
+    $('bb').hidden = t === 'not';
+    $('count').textContent = NAMES[t] + ': ' + COUNT[t] + ' transistors' + (t === 'and' || t === 'or' ? ' (' + (t === 'and' ? 'NAND' : 'NOR') + ' + inverter)' : '') + '.';
+    build(); buildBlock(); buildTable(); bLast = {};
+    render();
+  }
+
+  function render() {
+    var e = evaluate(TYPE, A, B), y = e.v.Y, two = TYPE !== 'not';
+    setA(A); setB(B);
+    DD.markRow(tt, two ? A * 2 + B : A);
+    var ins = two ? 'A B = ' + A + ' ' + B : 'A = ' + A;
+    var f = TYPE === 'not' ? "Y = A'" : TYPE === 'nand' ? "Y = (A·B)'" : TYPE === 'nor' ? "Y = (A+B)'" : TYPE === 'and' ? 'Y = A·B' : 'Y = A+B';
+    $('bfn').textContent = ins + ' → ' + f + ' = ' + y;
+    $('fn').textContent = ins + ' → Y = ' + y;
+    renderBlock(y);
+    if (disp.inA !== A || disp.inB !== B) { disp.inA = A; disp.inB = B; paint(); animate(); }
+  }
+  setType(TYPE);
+})();
+</script>
+</body>
+</html>

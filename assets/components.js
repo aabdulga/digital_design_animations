@@ -1,5 +1,9 @@
 /* The list the nav shell (index.html) is built from. Add a page here to make it appear. */
 window.DD_COMPONENTS = [
+  { group: 'Foundations', items: [
+    { id: 'transistors',   title: 'MOS Transistors',      sub: 'NMOS and PMOS as switches',     file: 'components/transistors.html' },
+    { id: 'cmos-gates',    title: 'CMOS Logic Gates',     sub: 'NOT, NAND, NOR, AND, OR',       file: 'components/cmos-gates.html' }
+  ]},
   { group: 'Combinational', items: [
     { id: 'mux',           title: 'Multiplexer',          sub: '4-to-1, gate level',            file: 'components/mux.html' },
     { id: 'decoder',       title: 'Decoder',              sub: '2-to-4 with enable',            file: 'components/decoder.html' },

@@ -7,6 +7,15 @@
 <link rel="stylesheet" href="../assets/style.css">
 <script src="../assets/circuit.js"></script>
 <style>
+  /* block view: the stored bit, and the note under it */
+  .sch .cellbit { font-size: 44px; font-weight: 600; }
+  .sch .cellbox { fill: var(--bg); stroke: var(--box); stroke-width: 1.5; transition: fill .2s; }
+  .sch .cellbox.hot { fill: var(--hi-soft); }
+  .sch .hold { font-size: 11px; fill: var(--muted); }
+  .sch .hold.pulsing { animation: sr-breathe 1.8s ease-in-out infinite; }
+  .sch .hold.warn { fill: var(--warn); font-weight: 600; }
+  @keyframes sr-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .sch .hold.pulsing { animation: none; } }
   /* propagation log: one line per gate delay */
   .log {
     font-family: var(--mono); font-size: .82rem; height: 200px; overflow-y: auto; padding: 8px 10px;
@@ -33,6 +42,21 @@
     <h1>NOR SR Latch</h1>
     <p>Two cross-coupled NOR gates. Each gate's output feeds the other's input, so the circuit remembers. Flip S or R and watch the change propagate one gate delay at a time.</p>
   </header>
+
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 480 250" width="480" height="250" role="img"
+           aria-label="SR latch symbol: S and R inputs on the left, Q and Q-bar outputs on the right. Inside, a memory cell shows the stored bit."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>A latch is a one-bit memory. A pulse on S stores a 1, a pulse on R stores a 0, and with both inputs at 0 it keeps showing whatever it stored last. Q&#773; is always the opposite of Q, except in the forbidden case S = R = 1.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Flip S or R here or in the gate-level circuit below; both views share the same latch.</p>
+    </div>
+  </section>
 
   <div class="top">
     <section class="panel scroll">
@@ -139,6 +163,63 @@
   function wait(ms) { return DD.sleep(ms); }
   function delay() { return +speed.value; }
 
+  /* ---- block view: the same latch as one symbol with a memory cell inside ---- */
+  var blk = document.getElementById('blk');
+  DD.block(blk, 150, 30, 180, 196);
+  DD.text(blk, 240, 52, 'SR LATCH', 'sym-name');
+  DD.text(blk, 160, 82, 'S', 'port', 'start'); DD.text(blk, 160, 202, 'R', 'port', 'start');
+  DD.text(blk, 320, 82, 'Q', 'port', 'end'); DD.text(blk, 320, 202, QB, 'port', 'end');
+  var bW = {
+    S: DD.wire(blk, [[80, 90], [150, 90]]), R: DD.wire(blk, [[80, 190], [150, 190]]),
+    Q: DD.wire(blk, [[330, 90], [398, 90]]), Qn: DD.wire(blk, [[330, 190], [398, 190]])
+  };
+  var bIn = {
+    S: DD.wire(blk, 'M150,90H180V110H200', 'inside'), R: DD.wire(blk, 'M150,190H180V160H200', 'inside'),
+    Q: DD.wire(blk, 'M280,110H300V90H330', 'inside'), Qn: DD.wire(blk, 'M280,160H300V190H330', 'inside')
+  };
+  var bPath = { S: 'M80,90H180V110H200', R: 'M80,190H180V160H200', Q: 'M280,110H300V90H398', Qn: 'M280,160H300V190H398' };
+  DD.text(blk, 240, 82, 'stored bit', 'port');
+  var cellBox = DD.el('rect', { x: 200, y: 90, width: 80, height: 90, rx: 6, 'class': 'cellbox' }, blk);
+  var cellT = DD.text(blk, 240, 151, '0', 'lbl cellbit');
+  var holdT = DD.text(blk, 240, 214, '', 'hold');
+  var bLedQ = DD.led(blk, 412, 90, 13), bLedQn = DD.led(blk, 412, 190, 13);
+  DD.text(blk, 434, 96, 'Q', 'lbl title', 'start'); DD.text(blk, 434, 196, QB, 'lbl title', 'start');
+  var bpS = DD.pin(blk, 80, 90, 'S', { onToggle: function () { userToggle('S'); } });
+  var bpR = DD.pin(blk, 80, 190, 'R', { onToggle: function () { userToggle('R'); } });
+  var shown = null, gen = { S: 0, R: 0, Q: 0, Qn: 0 };
+  function beadDur() { return Math.max(220, Math.min(700, delay() * 0.8)); }
+  function showOut(name) {
+    DD.setHi(bW[name], st[name]); DD.setHi(bIn[name], st[name]);
+    (name === 'Q' ? bLedQ : bLedQn).set(st[name]); shown[name] = st[name];
+  }
+  function showCell() {
+    DD.setVal(cellT, st.Q);
+    var k = '' + st.S + st.R;
+    holdT.textContent = k === '11' ? 'forbidden: Q = ' + QB + ' = 0' : k === '10' ? 'setting' : k === '01' ? 'resetting' : 'holding';
+    holdT.setAttribute('class', 'hold' + (k === '11' ? ' warn' : k === '00' ? ' pulsing' : ''));
+  }
+  /* an input bead travels into the cell; when a gate step changes an output, the cell flips and an output bead leaves */
+  async function bead(name, path, v, then) {
+    var my = ++gen[name];
+    await DD.token(blk, path, { value: v, dur: beadDur() });
+    if (my === gen[name] && then) then();
+  }
+  function renderBlock() {
+    DD.setHi(bW.S, st.S); DD.setHi(bW.R, st.R); bpS.set(st.S); bpR.set(st.R);
+    if (!shown) { shown = { S: st.S, R: st.R, Q: st.Q, Qn: st.Qn, cell: st.Q }; showCell(); showOut('Q'); showOut('Qn'); }
+    ['S', 'R'].forEach(function (n) {
+      if (st[n] !== shown[n]) { shown[n] = st[n]; DD.flow(bIn[n], st[n]); bead(n, bPath[n], st[n], function () { DD.setHi(bIn[n], st[n]); DD.flow(bIn[n], 0); }); }
+    });
+    showCell();
+    if (st.Q !== shown.cell) { shown.cell = st.Q; DD.restart(cellBox, 'hot'); setTimeout(function () { cellBox.classList.remove('hot'); }, 400); }
+    ['Q', 'Qn'].forEach(function (n) {
+      if (st[n] !== shown[n] && gen[n + 'p'] !== st[n]) { gen[n + 'p'] = st[n]; bead(n, bPath[n], st[n], function () { gen[n + 'p'] = null; showOut(n); }); }
+    });
+    var k = '' + st.S + st.R, bfn = $('bfn');
+    bfn.textContent = 'S R = ' + k + ' → ' + (k === '11' ? 'forbidden, Q = ' + QB + ' = 0' : k === '10' ? 'set, Q = 1' : k === '01' ? 'reset, Q = 0' : 'hold, Q = ' + st.Q);
+    bfn.classList.toggle('warn', k === '11');
+  }
+
   function render() {
     var v = { R: st.R, S: st.S, Q: st.Q, Qn: st.Qn };
     for (var n in W) DD.setHi(W[n], v[n]);
@@ -147,6 +228,7 @@
     pR.set(st.R); pS.set(st.S); setBR(st.R); setBS(st.S);
     DD.setVal(lvR, st.R); DD.setVal(lvS, st.S); DD.setVal(lvQ, st.Q); DD.setVal(lvQn, st.Qn);
     DD.markRow(tt, '' + st.S + st.R);
+    renderBlock();
   }
   function setStatus(text, warn) { status.textContent = text; status.classList.toggle('warn', !!warn); }
   function describe() {
@@ -208,7 +290,7 @@
     ['S', 1, 'set again'],
     ['R', 1, 'now R too: both gates see a 1, both outputs 0. Q and ' + QB + ' are no longer complements']
   ];
-  function lock(on) { busy = on; $('btnWalk').disabled = on; $('btnRace').disabled = on; $('btnStop').disabled = !on; }
+  function lock(on) { busy = on; $('btnWalk').disabled = on; $('btnRace').disabled = on; $('btnStop').disabled = !on; $('bplay').disabled = on; }
   $('btnWalk').addEventListener('click', async function () {
     if (busy) return; lock(true); stopFlag = false;
     log.innerHTML = ''; t = 0; addLog('walkthrough start', 'n');
@@ -228,6 +310,17 @@
     }
     st.S = 0; st.R = 0; t++; render(); addLog('<b>S → 0, R → 0</b> at the same instant');
     await propagate(); lock(false);
+  });
+  /* block-view story: set, hold, reset, hold */
+  $('bplay').addEventListener('click', async function () {
+    if (busy) return; lock(true); stopFlag = false;
+    if (st.S || st.R) { st.S = 0; st.R = 0; t++; render(); addLog('<b>S → 0, R → 0</b>'); await propagate(); }
+    var story = [['S', 1, 'set: store a 1'], ['S', 0, 'hold: the latch remembers Q = 1'], ['R', 1, 'reset: store a 0'], ['R', 0, 'hold: the latch remembers Q = 0']];
+    for (var i = 0; i < story.length && !stopFlag; i++) {
+      await setInput(story[i][0], story[i][1], story[i][2]); if (stopFlag) break;
+      await wait(delay() * 2);
+    }
+    lock(false);
   });
   $('btnStop').addEventListener('click', function () { stopFlag = true; });
 

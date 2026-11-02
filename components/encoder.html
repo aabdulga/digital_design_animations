@@ -16,6 +16,21 @@
     <p>An encoder does the reverse of a decoder: it reports which input line is active as a binary number. A priority encoder accepts any pattern of inputs and reports the highest-numbered active one; D3 wins over everything. The valid output V says whether any input is active at all.</p>
   </header>
 
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="50 0 380 262" width="380" height="262" role="img"
+           aria-label="Priority encoder symbol: inputs D3 to D0 on the left, outputs Y1, Y0 and V on the right, each to a lamp. A line inside shows which input won."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>Several request lines may be on at once. The encoder picks the highest-numbered active line, ignores the ones below it, and outputs that line's number in binary on Y1 Y0. V = 1 says "some line is active".</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Flip any input here or in the gate-level circuit below; both views share the same signals.</p>
+    </div>
+  </section>
+
   <div class="top">
     <section class="panel scroll">
       <h2>Gate-level circuit</h2>
@@ -130,6 +145,86 @@
   document.getElementById('step').addEventListener('click', function () { load((value() + 1) & 15); });
   document.getElementById('clear').addEventListener('click', function () { load(0); });
 
+  /* ---- block view: the same signals on a single encoder symbol ---- */
+  var blk = document.getElementById('blk');
+  DD.block(blk, 160, 20, 160, 220);
+  DD.text(blk, 240, 42, 'PRIORITY', 'sym-name');
+  DD.text(blk, 240, 60, 'ENCODER', 'sym-name');
+  var HUB = [240, 130], OY = { Y1: 86, Y0: 130, V: 196 };
+  var bIW = [], bPin = [], bInside = [], bEnter = [], bOnward = [];
+  for (k = 0; k < 4; k++) (function (k) {
+    var yk = 20 + 220 * (4 - k) / 5;                 /* D3 at the top */
+    bIW[k] = DD.wire(blk, [[110, yk], [160, yk]]);
+    DD.text(blk, 166, yk - 5, 'D' + k, 'port', 'start');
+    bInside[k] = DD.wire(blk, [[160, yk], [190, yk], HUB], 'inside');
+    bEnter[k] = 'M110,' + yk + 'H160';                /* pin → box edge */
+    bOnward[k] = 'M160,' + yk + 'H190L' + HUB.join(',');   /* box edge → priority hub */
+    bPin[k] = DD.pin(blk, 110, yk, 'D' + k, { onToggle: function (v) { D[k] = v; render(); } });
+  })(k);
+  var bOIn = {}, bOW = {}, bLed = {}, bOPath = {};
+  ['Y1', 'Y0', 'V'].forEach(function (nm) {
+    var yo = OY[nm];
+    bOIn[nm] = DD.wire(blk, [HUB, [292, yo], [320, yo]], 'inside');
+    DD.text(blk, 314, yo - 5, nm, 'port', 'end');
+    bOW[nm] = DD.wire(blk, [[320, yo], [380, yo]]);
+    bLed[nm] = DD.led(blk, 391, yo, 11, nm);
+    bOPath[nm] = 'M' + HUB.join(',') + 'L292,' + yo + 'H380';
+  });
+  var shown = { n: -1 }, gen = 0, faded = [];
+  function clearFaded() { faded.forEach(function (f) { if (f.parentNode) f.parentNode.removeChild(f); }); faded = []; }
+  function outsOf() { return { Y1: D[3] | D[2], Y0: D[3] | ((1 - D[2]) & D[1]), V: D[3] | D[2] | D[1] | D[0] }; }
+  function winner() { for (var k = 3; k >= 0; k--) if (D[k]) return k; return -1; }
+  /* lit: whether the outputs already show the new result */
+  function showBlock(n, win, o, lit) {
+    shown.n = n;
+    for (var k = 0; k < 4; k++)
+      bInside[k].setAttribute('class', k === win ? 'wire hi flow' : 'wire inside');
+    ['Y1', 'Y0', 'V'].forEach(function (nm) {
+      var v = lit ? o[nm] : 0;
+      bOIn[nm].setAttribute('class', win >= 0 ? 'wire' + (o[nm] ? ' hi' : '') + ' flow' : 'wire inside');
+      DD.setHi(bOW[nm], v); bLed[nm].set(v);
+    });
+  }
+  /* every active input sends a bead to the box; only the winner's goes on, then the code leaves */
+  async function animateBlock(n, win, o) {
+    var my = ++gen, beads = [];
+    clearFaded();
+    for (var k = 0; k < 4; k++) if (D[k]) beads.push(DD.token(blk, bEnter[k], { value: 1, dur: 450 }));
+    await Promise.all(beads);
+    if (my !== gen) return;
+    for (k = 0; k < win; k++) if (D[k]) {               /* losers stop at the edge, dimmed */
+      var g = DD.el('g', { 'class': 'token', transform: 'translate(160,' + (20 + 220 * (4 - k) / 5) + ')', opacity: .35 }, blk);
+      DD.el('circle', { r: 8 }, g); faded.push(g);
+    }
+    if (win >= 0) await DD.token(blk, bOnward[win], { value: 1, dur: 500 });
+    if (my !== gen) return;
+    showBlock(n, win, o, false);
+    await Promise.all(['Y1', 'Y0', 'V'].map(function (nm) { return DD.token(blk, bOPath[nm], { value: o[nm], dur: 700 }); }));
+    if (my !== gen) return;
+    showBlock(n, win, o, true);
+    await DD.sleep(600);
+    if (my === gen) clearFaded();
+  }
+  function renderBlock(win) {
+    var n = value(), o = outsOf();
+    for (var k = 0; k < 4; k++) {
+      DD.setHi(bIW[k], D[k]); bPin[k].set(D[k]);
+      bPin[k].g.style.opacity = win >= 0 && k < win ? .4 : '';
+    }
+    document.getElementById('bfn').textContent = 'D3..D0 = ' + DD.bin(n, 4) + ' → ' +
+      (win < 0 ? 'none active, V = 0' : 'D' + win + ' wins → Y = ' + o.Y1 + o.Y0 + ', V = 1');
+    if (shown.n < 0) showBlock(n, win, o, true);
+    else if (n !== shown.n) animateBlock(n, win, o);
+  }
+  var bPlay = document.getElementById('bplay');
+  bPlay.addEventListener('click', async function () {
+    bPlay.disabled = true;
+    var pause = DD.reduceMotion ? 700 : 1900;
+    load(0); await DD.sleep(pause / 2);
+    for (var i = 0; i < 4; i++) { D[i] = 1; render(); await DD.sleep(pause); }
+    bPlay.disabled = false;
+  });
+
   function render() {
     var v = { D3: D[3], D2: D[2], nD2: 1 - D[2], D1: D[1], D0: D[0] };
     v.P = v.nD2 & v.D1;
@@ -155,6 +250,7 @@
     document.getElementById('fn').textContent = win < 0
       ? 'No input active → Y = ' + v.Y1 + v.Y0 + ' (don\'t care), V = 0'
       : 'Highest active input: D' + win + ' → Y = ' + v.Y1 + v.Y0 + ', V = 1';
+    renderBlock(win);
   }
   render();
 })();

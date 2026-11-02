@@ -16,6 +16,21 @@
     <p>A multiplexer is a data selector. The two select lines S1 S0 form a binary number that picks one of the four data inputs and passes it to the output Y. Inside, each AND gate is enabled by exactly one select combination, and an OR gate collects the result.</p>
   </header>
 
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="0 0 500 300" width="500" height="300" role="img"
+           aria-label="Multiplexer symbol: four data inputs on the left, two select lines underneath, one output Y on the right. A line inside shows which input is connected."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>Think of a rotary switch. The select number S1 S0 turns the switch to one input, and that input's value appears on Y. The other inputs are ignored.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Flip any input here or in the gate-level circuit below; both views share the same signals.</p>
+    </div>
+  </section>
+
   <div class="top">
     <section class="panel scroll">
       <h2>Gate-level circuit</h2>
@@ -139,6 +154,65 @@
     sweepBtn.disabled = false;
   });
 
+  /* ---- block view: the same signals on a single mux symbol ---- */
+  var blk = document.getElementById('blk');
+  var bm = DD.muxShape(blk, 200, 30, 110, 210, 4);
+  DD.text(blk, 255, 56, 'MUX 4:1', 'sym-name');
+  var bIn = [], bPin = [], bInside = [], bPath = [];
+  for (k = 0; k < 4; k++) (function (k) {
+    var yk = bm.ins[k][1];
+    bIn[k] = DD.wire(blk, [[120, yk], [200, yk]]);
+    DD.text(blk, 208, yk - 5, 'I' + k, 'port', 'start');
+    bInside[k] = DD.wire(blk, [[200, yk], [232, yk], [288, bm.out[1]], [310, bm.out[1]]], 'inside');
+    bPath[k] = 'M120,' + yk + 'H232L288,' + bm.out[1] + 'H410';      /* pin → switch → output lamp */
+    bPin[k] = DD.pin(blk, 120, yk, 'I' + k, { onToggle: function (v) { I[k] = v; render(); } });
+  })(k);
+  var bSelX = [225, 285], bSelW = [], bSelPath = [], bSelPin = [];
+  ['S1', 'S0'].forEach(function (nm, j) {
+    var x = bSelX[j], yEdge = 240 - 18 * (x - 200) / 110;
+    bSelW[j] = DD.wire(blk, [[x, 268], [x, yEdge]], 'ctrl');
+    bSelPath[j] = 'M' + x + ',268V' + yEdge;
+    bSelPin[j] = DD.pin(blk, x + 12, 280, nm, { ctrl: 1, onToggle: function (v) { if (j) S0 = v; else S1 = v; render(); } });
+  });
+  var bSelT = DD.text(blk, 255, 218, 'sel = 0', 'port');
+  var bOut = DD.wire(blk, [bm.out, [410, bm.out[1]]]);
+  var bLed = DD.led(blk, 424, bm.out[1], 13);
+  DD.text(blk, 424, bm.out[1] + 32, 'Y', 'lbl title');
+  var shown = { sel: -1, y: -1 }, gen = 0;
+  function showBlock(sel, yv) {
+    shown.sel = sel; shown.y = yv;
+    for (var k = 0; k < 4; k++) {
+      var on = k === sel;
+      bInside[k].setAttribute('class', on ? 'wire' + (I[k] ? ' hi' : '') + ' flow' : 'wire inside');
+    }
+    DD.setHi(bOut, yv); bLed.set(yv); bSelT.textContent = 'sel = ' + sel;
+  }
+  /* select beads climb the select lines, the switch turns, then the chosen bit travels to Y */
+  async function animateBlock(sel, yv, selChanged) {
+    var my = ++gen;
+    if (selChanged) {
+      await Promise.all([DD.token(blk, bSelPath[0], { value: S1, ctrl: S1, dur: 450 }),
+                         DD.token(blk, bSelPath[1], { value: S0, ctrl: S0, dur: 450 })]);
+      if (my !== gen) return;
+      showBlock(sel, shown.y);
+    }
+    await DD.token(blk, bPath[sel], { value: I[sel], dur: 800 });
+    if (my === gen) showBlock(sel, yv);
+  }
+  function renderBlock(sel, yv) {
+    for (var k = 0; k < 4; k++) { DD.setHi(bIn[k], I[k]); bPin[k].set(I[k]); }
+    DD.setHi(bSelW[0], S1); DD.setHi(bSelW[1], S0); bSelPin[0].set(S1); bSelPin[1].set(S0);
+    document.getElementById('bfn').textContent = 'S1 S0 = ' + S1 + S0 + ' = ' + sel + ' → Y = I' + sel + ' = ' + yv;
+    if (shown.sel < 0) showBlock(sel, yv);
+    else if (sel !== shown.sel || yv !== shown.y) animateBlock(sel, yv, sel !== shown.sel);
+  }
+  var bPlay = document.getElementById('bplay');
+  bPlay.addEventListener('click', async function () {
+    bPlay.disabled = true;
+    for (var i = 0; i < 4; i++) { S1 = i >> 1; S0 = i & 1; render(); await DD.sleep(DD.reduceMotion ? 700 : 1500); }
+    bPlay.disabled = false;
+  });
+
   function render() {
     var sel = S1 * 2 + S0;
     var v = { S1: S1, nS1: 1 - S1, S0: S0, nS0: 1 - S0, Y: I[sel] };
@@ -157,6 +231,7 @@
     pS1.set(S1); pS0.set(S0); setS1(S1); setS0(S0);
     DD.markRow(tt, sel);
     document.getElementById('fn').textContent = 'S1 S0 = ' + S1 + S0 + ' → Y = I' + sel + ' = ' + v.Y;
+    renderBlock(sel, v.Y);
   }
   render();
 })();

@@ -9,6 +9,10 @@
 <style>
   /* on phones keep the schematic legible and let its panel scroll sideways */
   #sch { min-width: 600px; }
+  /* block view: the stored value inside the register symbol */
+  .sch .regval { font-size: 34px; font-weight: 600; letter-spacing: .08em; }
+  .sch .cellbox { fill: var(--bg); stroke: var(--box); stroke-width: 1.5; transition: fill .2s; }
+  .sch .cellbox.hot { fill: var(--hi-soft); }
   /* the mux input currently passed to y */
   .sch .tap { fill: transparent; transition: fill .2s; }
   .sch .tap.sel { fill: var(--ctrl-soft); }
@@ -26,6 +30,21 @@
     <h1>Load/Clear Register</h1>
     <p>A 3-bit multi-function register. Set <code>clr</code>, <code>ld</code> and the data bits, then pulse the clock to watch each 4×1 mux pick an input and the flip-flops capture it on the rising edge. The timing diagram at the bottom records every cycle.</p>
   </header>
+
+  <section class="panel blockview">
+    <div>
+      <h2>Block view</h2>
+      <svg id="blk" class="sch" viewBox="30 0 360 300" width="360" height="300" role="img"
+           aria-label="Register symbol: the 3-bit data bus D enters at the top, clr and ld on the left, the clock at the bottom, and the 3-bit output Q leaves at the bottom. The stored value is shown inside."></svg>
+    </div>
+    <div class="say">
+      <h2>What it does</h2>
+      <p>A register stores a 3-bit word and changes it only on a rising clock edge. At each edge, clr and ld decide what it does: load the word on D, clear to 0, or keep the value it already holds.</p>
+      <div class="fn" id="bfn"></div>
+      <div class="row"><button class="btn primary" id="bplay">Animate ⏵</button></div>
+      <p>Change D, clr or ld here or in the detailed circuit below, then pulse the clock; both views share the same register.</p>
+    </div>
+  </section>
 
   <div class="top">
     <section class="panel scroll">
@@ -177,6 +196,67 @@
   function sel() { return '' + clr + ld; }
   function muxOut(i) { var k = sel(); if (k === '01') return D[i]; if (k === '10') return 0; return Q[i]; }
 
+  /* ---- block view: the same register as one symbol ---- */
+  var blk = document.getElementById('blk');
+  DD.block(blk, 150, 70, 220, 166);
+  DD.text(blk, 160, 92, '3-BIT REGISTER', 'sym-name', 'start');
+  var bD = [], bDPin = [], dX = [280, 310, 340];
+  dX.forEach(function (x, i) {
+    bD[i] = DD.wire(blk, [[x, 42], [x, 52]]);
+    bDPin[i] = DD.pin(blk, x + 12, 30, 'd' + (2 - i), { side: 'top', onToggle: function (v) { if (busy) return; D[i] = v; render(); } });
+  });
+  var bDBus = [DD.wire(blk, [[280, 52], [340, 52]], 'bus'), DD.wire(blk, [[310, 52], [310, 70]], 'bus')];
+  bDBus.push(DD.dot(blk, 310, 52));
+  DD.text(blk, 262, 34, 'D[2:0]', 'port', 'end');
+  var bInD = DD.wire(blk, 'M310,70V108', 'inside');
+  var bClr = DD.wire(blk, [[90, 124], [150, 124]], 'ctrl'), bLd = DD.wire(blk, [[90, 160], [150, 160]], 'ctrl');
+  var bInClr = DD.wire(blk, 'M150,124H200', 'inside');
+  DD.text(blk, 156, 118, 'clr', 'port', 'start'); DD.text(blk, 156, 154, 'ld', 'port', 'start');
+  var bLoop = DD.wire(blk, 'M320,154H345V128H320', 'inside');
+  var cellBox = DD.el('rect', { x: 200, y: 108, width: 120, height: 68, rx: 6, 'class': 'cellbox' }, blk);
+  var cellT = DD.text(blk, 260, 146, '000', 'lbl regval'), cellD = DD.text(blk, 260, 166, '= 0', 'port');
+  DD.el('polyline', { points: '200,236 210,224 220,236', 'class': 'clk-tri' }, blk);
+  var bClk = DD.wire(blk, [[130, 272], [210, 272], [210, 236]], 'ctrl');
+  var bEdge = DD.el('path', { d: 'M130,272H210V236', 'class': 'edge' }, blk);
+  var bInQ = DD.wire(blk, 'M290,176V236', 'inside'), bQ = DD.wire(blk, [[290, 236], [290, 286]], 'bus');
+  DD.text(blk, 300, 262, 'Q[2:0]', 'port', 'start');
+  var bQT = DD.text(blk, 300, 280, '000', 'lbl val', 'start');
+  var bpClr = DD.pin(blk, 90, 124, 'clr', { ctrl: 1, onToggle: function (v) { if (busy) return; clr = v; render(); } });
+  var bpLd = DD.pin(blk, 90, 160, 'ld', { ctrl: 1, onToggle: function (v) { if (busy) return; ld = v; render(); } });
+  var bpClk = DD.pin(blk, 130, 272, 'clk', { ctrl: 1, onToggle: function () { pulseClock(); } });
+  var bPath = { clk: 'M130,272H210V236', '01': 'M310,52V108', '10': 'M150,124H200', keep: 'M320,154H345V128H320', out: 'M290,176V286' };
+  var bgen = 0, banim = false;
+  function showCell(q) { cellT.textContent = DD.bin(q, 3); cellD.textContent = '= ' + q; DD.setHi(bLoop, q); DD.setHi(bInQ, q); }
+  function showOut(q) { DD.setVal(bQT, DD.bin(q, 3)); bQT.classList.toggle('v1', q > 0); bQT.classList.toggle('v0', !q); DD.setHi(bQ, q); }
+  function renderBlock() {
+    var k = sel(), d = dv();
+    for (var i = 0; i < 3; i++) { DD.setHi(bD[i], D[i]); bDPin[i].set(D[i]); }
+    DD.setHi(bDBus, d); DD.setHi(bInD, d);
+    DD.setHi(bClr, clr); DD.setHi(bLd, ld); DD.setHi(bClk, busy ? 1 : 0);
+    bpClr.set(clr); bpLd.set(ld); bpClk.set(busy ? 1 : 0);
+    /* the internal path the next edge will use */
+    DD.flow(bInD, k === '01'); DD.flow(bInClr, k === '10'); DD.flow(bLoop, k === '00' || k === '11');
+    if (!banim) { showCell(qv()); showOut(qv()); }
+    var bfn = document.getElementById('bfn');
+    bfn.textContent = 'clr ld = ' + k + ' → ' + fnName[k] + ': next edge Q ← ' +
+      (k === '01' ? 'D = ' + d : k === '10' ? '0' : 'Q = ' + qv());
+  }
+  /* clock edge first, then the chosen value moves into the cell, then Q follows */
+  async function animateBlock(k, next) {
+    var my = ++bgen; banim = true;
+    DD.restart(bEdge, 'flash-once');
+    await DD.token(blk, bPath.clk, { value: 1, ctrl: 1, dur: 250 });
+    if (my !== bgen) return;
+    var src = k === '01' ? dv() : k === '10' ? 0 : qv();
+    await DD.token(blk, bPath[k === '01' || k === '10' ? k : 'keep'], { value: src, dur: 400 });
+    if (my !== bgen) return;
+    showCell(next); DD.restart(cellBox, 'hot'); setTimeout(function () { cellBox.classList.remove('hot'); }, 400);
+    await DD.token(blk, bPath.out, { value: next, dur: 300 });
+    if (my !== bgen) return;
+    banim = false; showCell(qv()); showOut(qv());
+  }
+  document.getElementById('bplay').addEventListener('click', function () { playBtn.click(); });
+
   function render() {
     var k = sel(), v = { clr: clr, ld: ld, clk: busy ? 1 : 0 };
     parts.forEach(function (p, i) {
@@ -193,6 +273,7 @@
     document.getElementById('fn').textContent = 'Next edge: ' + fnName[k] + ' → Q = ' + (k === '01' ? dv() : k === '10' ? 0 : qv());
     DD.markRow(tt, k);
     drawTiming();
+    renderBlock();
   }
 
   function drawTiming() {
@@ -221,6 +302,7 @@
     var next = parts.map(function (_, i) { return muxOut(i); });
     var rec = { d: dv(), clr: clr, ld: ld, q: null };
     render();
+    animateBlock(rec.clr + '' + rec.ld, next[0] * 4 + next[1] * 2 + next[2]);
     DD.restart(edge, 'flash-once');
     parts.forEach(function (p) { p.ff.hot(1); DD.restart(p.pulse, 'travel'); });
     return new Promise(function (res) {
@@ -242,7 +324,7 @@
   var playBtn = document.getElementById('play');
   playBtn.addEventListener('click', async function () {
     if (busy) return;
-    playBtn.disabled = true;
+    playBtn.disabled = true; document.getElementById('bplay').disabled = true;
     Q = [0, 0, 0]; hist = []; q0 = 0;
     for (var s = 0; s < seq.length; s++) {
       D = DD.bitsOf(seq[s].d, 3); clr = seq[s].clr; ld = seq[s].ld; render();
@@ -250,7 +332,7 @@
       await pulseClock();
       await DD.sleep(500);
     }
-    playBtn.disabled = false;
+    playBtn.disabled = false; document.getElementById('bplay').disabled = false;
   });
 
   render();
