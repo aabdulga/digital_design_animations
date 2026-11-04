@@ -18,6 +18,7 @@ window.DD_COMPONENTS = [
     { id: 'counter',       title: 'Up Counter',           sub: '4-bit with terminal count',     file: 'components/counter.html' }
   ]},
   { group: 'State Machines', items: [
-    { id: 'traffic-fsm',   title: 'Traffic Light FSM',    sub: 'Moore machine, two timers',     file: 'components/traffic-fsm.html' }
+    { id: 'traffic-fsm',   title: 'Traffic Light FSM',    sub: 'Moore machine, two timers',     file: 'components/traffic-fsm.html' },
+    { id: 'traffic-fsm-gates', title: 'Traffic FSM: Inside', sub: 'click a logic box to open it', file: 'components/traffic-fsm-gates.html' }
   ]}
 ];
